@@ -145,7 +145,7 @@ new String:tmodels[4][] =
 
 
 // Native interface
-public void __ext_core_SetNTVOptional()
+public __ext_core_SetNTVOptional()
 {
     MarkNativeAsOptional("GetFeatureStatus");
     MarkNativeAsOptional("RequireFeature");
