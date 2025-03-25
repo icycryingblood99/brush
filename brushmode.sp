@@ -1,149 +1,160 @@
- public PlVers:__version =
-{
-	version = 5,
-	filevers = "1.4.2",
-	date = "09/19/2016",
-	time = "13:44:43"
-};
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
 #include <cstrike>
 #include <sdktools>
 
-#pragma semicolon 1
-#pragma newdecls required
+#define MAXPLAYERS_PLUS1 66
 
-public Extension:__ext_core =
+public Plugin myinfo = 
 {
-	name = "Core",
-	file = "core",
-	autoload = 0,
-	required = 0,
+    name = "CSS BRush: v34",
+    description = "",
+    author = "TnTSCS & Danyas",
+    version = "19.09.2016",
+    url = ""
 };
-public Extension:__ext_sdktools =
+
+public Extension __ext_core = 
 {
-	name = "SDKTools",
-	file = "sdktools.ext",
-	autoload = 1,
-	required = 1,
+    name = "Core",
+    file = "core",
+    autoload = 0,
+    required = 0
 };
-public Extension:__ext_cstrike =
+
+public Extension __ext_sdktools = 
 {
-	name = "cstrike",
-	file = "games/game.cstrike.ext",
-	autoload = 0,
-	required = 1,
+    name = "SDKTools",
+    file = "sdktools.ext",
+    autoload = 1,
+    required = 1
 };
-new String:CTag[6][] =
+
+public Extension __ext_cstrike = 
 {
-	"{default}",
-	"{green}",
-	"{lightgreen}",
-	"{red}",
-	"{blue}",
-	"{olive}"
+    name = "cstrike",
+    file = "games/game.cstrike.ext",
+    autoload = 0,
+    required = 1
 };
-new String:CTagCode[6][16] =
+
+// Цветовые теги
+char CTag[][] = 
 {
-	"\x01",
-	"\x04",
-	"\x03",
-	"\x03",
-	"\x03",
-	"\x05"
+    "{default}",
+    "{green}",
+    "{lightgreen}",
+    "{red}",
+    "{blue}",
+    "{olive}"
 };
-new bool:CTagReqSayText2[6] =
+
+char CTagCode[][] = 
 {
-	0, 0, 1, 1, 1, 0
+    "\x01",
+    "\x04",
+    "\x03",
+    "\x03",
+    "\x03",
+    "\x05"
 };
-new bool:CEventIsHooked;
-new bool:CSkipList[66];
-new bool:CProfile_Colors[6] =
+
+// Булевые переменные
+bool CTagReqSayText2[6];
+bool CEventIsHooked;
+bool CSkipList[66];
+bool CProfile_Colors[6];
+bool CProfile_SayText2;
+
+// Целочисленные переменные
+int CProfile_TeamIndex[6] = {-1, ...};
+int CTKiller;
+int PlayerKilledCT[66];
+int CTImmune[66];
+int SwitchingPlayer[66];
+bool PlayerSwitchable[66];
+
+// Хэндлы
+Handle ClientTimer[66];
+Handle p_FreezeTime[66];
+Handle LiveTimer;
+Handle brush_botquota;
+Handle g_hSlotMenuTimers[66];
+
+// Настройки плагина
+bool UseWeaponRestrict = true;
+bool AllowHEGrenades;
+bool AllowFlashBangs;
+bool AllowSmokes;
+bool GameIsLive;
+bool Enabled = true;
+bool ManageBots = true;
+bool FillBots;
+bool UseConfigs;
+
+// Таймеры заморозки
+float CTFreezeTime;
+float TFreezeTime;
+
+// Статус игры
+bool g_bGameStarted;
+int g_iRoundNumber;
+bool g_bWaitingForSlot[66];
+bool g_bBlockTeamChange[66];
+bool g_bForceStarted;
+int g_iSelectionsRemaining;
+int g_iPlanterUserId;
+bool g_bSelectionInProgress;
+
+// Игровые переменные
+bool CTAwps;
+int CTAwpNumber;
+bool TAwps;
+int TAwpNumber;
+int FreezeTime;
+int MenuTime;
+int CTScore;
+int TScore;
+int killers;
+int g_BombsiteB = -1;
+int g_BombsiteA = -1;
+int numSwitched;
+int bot_quota;
+int the_bomb = -1;
+int roundend_mode;
+int tawpno;
+int ctawpno;
+bool IsPlayerFrozen[66];
+
+// Бомбсайт и модели
+char s_bombsite[4] = "B";
+
+char ctmodels[4][112] = 
 {
-	1, 1, 0, 0, 0, 0
+    "models/player/ct_urban.mdl",
+    "models/player/ct_gsg9.mdl",
+    "models/player/ct_sas.mdl",
+    "models/player/ct_gign.mdl"
 };
-new CProfile_TeamIndex[6] =
+
+char tmodels[4][] = 
 {
-	-1, ...
+    "models/player/t_phoenix.mdl",
+    "models/player/t_leet.mdl",
+    "models/player/t_arctic.mdl",
+    "models/player/t_guerilla.mdl"
 };
-new bool:CProfile_SayText2;
-new CTKiller;
-new PlayerKilledCT[66];
-new CTImmune[66];
-new SwitchingPlayer[66];
-new bool:PlayerSwitchable[66];
-new Handle:ClientTimer[66];
-new Handle:p_FreezeTime[66];
-new bool:UseWeaponRestrict = 1;
-new bool:AllowHEGrenades;
-new bool:AllowFlashBangs;
-new bool:AllowSmokes;
-new bool:GameIsLive;
-new bool:Enabled = 1;
-new bool:ManageBots = 1;
-new bool:FillBots;
-new bool:UseConfigs;
-new Float:CTFreezeTime;
-new Float:TFreezeTime;
-new Handle:LiveTimer;
-new Handle:brush_botquota;
-new bool:g_bGameStarted = false;
-new g_iRoundNumber = 0;
-new bool:CTAwps;
-new CTAwpNumber;
-new bool:TAwps;
-new TAwpNumber;
-new FreezeTime;
-new MenuTime;
-new CTScore;
-new TScore;
-new killers;
-new g_BombsiteB = -1;
-new g_BombsiteA = -1;
-new numSwitched;
-new bot_quota;
-new the_bomb = -1;
-new Handle:g_hSlotMenuTimers[MAXPLAYERS+1];
-new bool:g_bBlockTeamChange[MAXPLAYERS+1];
-new bool:g_bWaitingForSlot[MAXPLAYERS+1];
-new bool:g_bForceStarted = false;
-new g_iSelectionsRemaining;
-new g_iPlanterUserId;
-new bool:g_bSelectionInProgress;
-new roundend_mode;
-new tawpno;
-new ctawpno;
-new bool:IsPlayerFrozen[66];
-new String:s_bombsite[4] = "B";
-new String:ctmodels[4][112] =
+
+// Native interface
+public void __ext_core_SetNTVOptional()
 {
-	"models/player/ct_urban.mdl",
-	"models/player/ct_gsg9.mdl",
-	"models/player/ct_sas.mdl",
-	"models/player/ct_gign.mdl"
-};
-new String:tmodels[4][] =
-{
-	"models/player/t_phoenix.mdl",
-	"models/player/t_leet.mdl",
-	"models/player/t_arctic.mdl",
-	"models/player/t_guerilla.mdl"
-};
-public Plugin:myinfo =
-{
-	name = "CSS BRush: v34",
-	description = "",
-	author = "TnTSCS & Danyas",
-	version = "19.09.2016",
-	url = ""
-};
-public __ext_core_SetNTVOptional()
-{
-	MarkNativeAsOptional("GetFeatureStatus");
-	MarkNativeAsOptional("RequireFeature");
-	MarkNativeAsOptional("AddCommandListener");
-	MarkNativeAsOptional("RemoveCommandListener");
-	VerifyCoreVersion();
-	return 0;
+    MarkNativeAsOptional("GetFeatureStatus");
+    MarkNativeAsOptional("RequireFeature");
+    MarkNativeAsOptional("AddCommandListener");
+    MarkNativeAsOptional("RemoveCommandListener");
+    VerifyCoreVersion();
 }
 
 bool:operator!=(Float:,Float:)(Float:oper1, Float:oper2)
@@ -204,49 +215,47 @@ bool:GetEntityClassname(entity, String:clsname[], maxlength)
 	return !!GetEntPropString(entity, PropType:1, "m_iClassname", clsname, maxlength, 0);
 }
 
-SetEntityRenderColor(entity, r, g, b, a)
+void SetEntityRenderColor(int entity, int r, int g, int b, int a)
 {
-	static bool:gotconfig;
-	static String:prop[32];
-	if (!gotconfig)
-	{
-		new Handle:gc = LoadGameConfigFile("core.games");
-		new bool:exists = GameConfGetKeyValue(gc, "m_clrRender", prop, 32);
-		CloseHandle(gc);
-		if (!exists)
-		{
-			strcopy(prop, 32, "m_clrRender");
-		}
-		gotconfig = true;
-	}
-	new offset = GetEntSendPropOffs(entity, prop, false);
-	if (0 >= offset)
-	{
-		ThrowError("SetEntityRenderColor not supported by this mod");
-	}
-	SetEntData(entity, offset, r, 1, true);
-	SetEntData(entity, offset + 1, g, 1, true);
-	SetEntData(entity, offset + 2, b, 1, true);
-	SetEntData(entity, offset + 3, a, 1, true);
-	return 0;
+    static bool gotconfig;
+    static char prop[32];
+    
+    if (!gotconfig)
+    {
+        Handle gc = LoadGameConfigFile("core.games");
+        bool exists = GameConfGetKeyValue(gc, "m_clrRender", prop, sizeof(prop));
+        delete gc;
+        
+        if (!exists)
+            strcopy(prop, sizeof(prop), "m_clrRender");
+            
+        gotconfig = true;
+    }
+    
+    int offset = GetEntSendPropOffs(entity, prop, false);
+    if (offset <= 0)
+        ThrowError("SetEntityRenderColor not supported by this mod");
+    
+    SetEntData(entity, offset, r, 1, true);
+    SetEntData(entity, offset + 1, g, 1, true);
+    SetEntData(entity, offset + 2, b, 1, true);
+    SetEntData(entity, offset + 3, a, 1, true);
 }
 
-EmitSoundToClient(client, String:sample[], entity, channel, level, flags, Float:volume, pitch, speakerentity, Float:origin[3], Float:dir[3], bool:updatePos, Float:soundtime)
+void EmitSoundToClient(int client, const char[] sample, int entity = SOUND_FROM_PLAYER, 
+                      int channel = SNDCHAN_AUTO, int level = SNDLEVEL_NORMAL, 
+                      int flags = SND_NOFLAGS, float volume = SNDVOL_NORMAL, 
+                      int pitch = SNDPITCH_NORMAL, int speakerentity = -1,
+                      const float origin[3] = NULL_VECTOR, const float dir[3] = NULL_VECTOR, 
+                      bool updatePos = true, float soundtime = 0.0)
 {
-	new clients[1];
-	clients[0] = client;
-	new var1;
-	if (entity == -2)
-	{
-		var1 = client;
-	}
-	else
-	{
-		var1 = entity;
-	}
-	entity = var1;
-	EmitSound(clients, 1, sample, entity, channel, level, flags, volume, pitch, speakerentity, origin, dir, updatePos, soundtime);
-	return 0;
+    int clients[1];
+    clients[0] = client;
+    
+    if (entity == -2)
+        entity = client;
+        
+    EmitSound(clients, 1, sample, entity, channel, level, flags, volume, pitch, speakerentity, origin, dir, updatePos, soundtime);
 }
 
 CPrintToChat(client, String:szMessage[])
