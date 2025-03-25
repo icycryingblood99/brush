@@ -145,7 +145,7 @@ new String:tmodels[4][] =
 
 
 // Native interface
-public __ext_core_SetNTVOptional()
+stock MarkOptionalNatives()
 {
     MarkNativeAsOptional("GetFeatureStatus");
     MarkNativeAsOptional("RequireFeature");
@@ -482,6 +482,8 @@ public Action:CEvent_MapStart(Handle:event, String:name[], bool:dontBroadcast)
 
 public OnPluginStart()
 {
+	
+	MarkOptionalNatives();
 	new Handle:hRandom;
 	new var1 = CreateConVar("sm_brush_version", "19.09.2016", "Version of 'CSS BRush'", 393536, false, 0.0, false, 0.0);
 	hRandom = var1;
@@ -1644,17 +1646,17 @@ public AddTerroristsToMenu(Handle:menu)
 
 public FreezePlayer(client)
 {
-	SetEntPropFloat(client, PropType:1, "m_flLaggedMovementValue", 0.0, 0);
+    SetEntityMoveType(client, MOVETYPE_NONE);
 	SetEntityRenderColor(client, 255, 0, 170, 174);
-	IsPlayerFrozen[client] = 1;
+    IsPlayerFrozen[client] = true;
 	return 0;
 }
 
 public UnFreezePlayer(client)
 {
-	SetEntPropFloat(client, PropType:1, "m_flLaggedMovementValue", 1.0, 0);
+    SetEntityMoveType(client, MOVETYPE_WALK);
 	SetEntityRenderColor(client, 255, 255, 255, 255);
-	IsPlayerFrozen[client] = 0;
+    IsPlayerFrozen[client] = false;
 	return 0;
 }
 
