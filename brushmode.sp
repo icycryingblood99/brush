@@ -1,13 +1,37 @@
 #pragma semicolon 1
-#pragma newdecls required
 
 #include <sourcemod>
 #include <cstrike>
 #include <sdktools>
 
-#define MAXPLAYERS_PLUS1 66
+#define MAXSLOTS 66
 
-public Plugin myinfo = 
+// Extension declarations
+public Extension:__ext_core = 
+{
+    name = "Core",
+    file = "core",
+    autoload = 0,
+    required = 0
+};
+
+public Extension:__ext_sdktools = 
+{
+    name = "SDKTools",
+    file = "sdktools.ext",
+    autoload = 1,
+    required = 1
+};
+
+public Extension:__ext_cstrike = 
+{
+    name = "cstrike",
+    file = "games/game.cstrike.ext",
+    autoload = 0,
+    required = 1
+};
+
+public Plugin:myinfo = 
 {
     name = "CSS BRush: v34",
     description = "",
@@ -16,32 +40,8 @@ public Plugin myinfo =
     url = ""
 };
 
-public Extension __ext_core = 
-{
-    name = "Core",
-    file = "core",
-    autoload = 0,
-    required = 0
-};
-
-public Extension __ext_sdktools = 
-{
-    name = "SDKTools",
-    file = "sdktools.ext",
-    autoload = 1,
-    required = 1
-};
-
-public Extension __ext_cstrike = 
-{
-    name = "cstrike",
-    file = "games/game.cstrike.ext",
-    autoload = 0,
-    required = 1
-};
-
-// Цветовые теги
-char CTag[][] = 
+// Переменные
+new String:CTag[6][] = 
 {
     "{default}",
     "{green}",
@@ -51,7 +51,7 @@ char CTag[][] =
     "{olive}"
 };
 
-char CTagCode[][] = 
+new String:CTagCode[6][16] = 
 {
     "\x01",
     "\x04",
@@ -61,77 +61,73 @@ char CTagCode[][] =
     "\x05"
 };
 
-// Булевые переменные
-bool CTagReqSayText2[6];
-bool CEventIsHooked;
-bool CSkipList[66];
-bool CProfile_Colors[6];
-bool CProfile_SayText2;
-
-// Целочисленные переменные
-int CProfile_TeamIndex[6] = {-1, ...};
-int CTKiller;
-int PlayerKilledCT[66];
-int CTImmune[66];
-int SwitchingPlayer[66];
-bool PlayerSwitchable[66];
-
-// Хэндлы
-Handle ClientTimer[66];
-Handle p_FreezeTime[66];
-Handle LiveTimer;
-Handle brush_botquota;
-Handle g_hSlotMenuTimers[66];
-
-// Настройки плагина
-bool UseWeaponRestrict = true;
-bool AllowHEGrenades;
-bool AllowFlashBangs;
-bool AllowSmokes;
-bool GameIsLive;
-bool Enabled = true;
-bool ManageBots = true;
-bool FillBots;
-bool UseConfigs;
-
-// Таймеры заморозки
-float CTFreezeTime;
-float TFreezeTime;
-
-// Статус игры
-bool g_bGameStarted;
-int g_iRoundNumber;
-bool g_bWaitingForSlot[66];
-bool g_bBlockTeamChange[66];
-bool g_bForceStarted;
-int g_iSelectionsRemaining;
-int g_iPlanterUserId;
-bool g_bSelectionInProgress;
+new bool:CTagReqSayText2[6] = {false, false, true, true, true, false};
+new bool:CEventIsHooked;
+new bool:CSkipList[MAXSLOTS];
+new bool:CProfile_Colors[6] = {true, true, false, false, false, false};
+new CProfile_TeamIndex[6] = {-1, ...};
+new bool:CProfile_SayText2;
 
 // Игровые переменные
-bool CTAwps;
-int CTAwpNumber;
-bool TAwps;
-int TAwpNumber;
-int FreezeTime;
-int MenuTime;
-int CTScore;
-int TScore;
-int killers;
-int g_BombsiteB = -1;
-int g_BombsiteA = -1;
-int numSwitched;
-int bot_quota;
-int the_bomb = -1;
-int roundend_mode;
-int tawpno;
-int ctawpno;
-bool IsPlayerFrozen[66];
+new CTKiller;
+new PlayerKilledCT[MAXSLOTS];
+new CTImmune[MAXSLOTS];
+new SwitchingPlayer[MAXSLOTS];
+new bool:PlayerSwitchable[MAXSLOTS];
+new Handle:ClientTimer[MAXSLOTS];
+new Handle:p_FreezeTime[MAXSLOTS];
+
+// Настройки плагина
+new bool:UseWeaponRestrict = true;
+new bool:AllowHEGrenades;
+new bool:AllowFlashBangs;
+new bool:AllowSmokes;
+new bool:GameIsLive;
+new bool:Enabled = true;
+new bool:ManageBots = true;
+new bool:FillBots;
+new bool:UseConfigs;
+
+// Таймеры
+new Float:CTFreezeTime;
+new Float:TFreezeTime;
+new Handle:LiveTimer;
+new Handle:brush_botquota;
+
+// Переменные статуса
+new bool:g_bGameStarted;
+new g_iRoundNumber;
+new Handle:g_hSlotMenuTimers[MAXSLOTS];
+new bool:g_bBlockTeamChange[MAXSLOTS];
+new bool:g_bWaitingForSlot[MAXSLOTS];
+new bool:g_bForceStarted;
+new g_iSelectionsRemaining;
+new g_iPlanterUserId;
+new bool:g_bSelectionInProgress;
+
+// AWP и раундовые переменные
+new bool:CTAwps;
+new CTAwpNumber;
+new bool:TAwps;
+new TAwpNumber;
+new FreezeTime;
+new MenuTime;
+new CTScore;
+new TScore;
+new killers;
+new g_BombsiteB = -1;
+new g_BombsiteA = -1;
+new numSwitched;
+new bot_quota;
+new the_bomb = -1;
+new roundend_mode;
+new tawpno;
+new ctawpno;
+new bool:IsPlayerFrozen[MAXSLOTS];
 
 // Бомбсайт и модели
-char s_bombsite[4] = "B";
-
-char ctmodels[4][112] = 
+new String:s_bombsite[4] = "B";
+new String:ctmodels[4][112] = 
 {
     "models/player/ct_urban.mdl",
     "models/player/ct_gsg9.mdl",
@@ -139,13 +135,14 @@ char ctmodels[4][112] =
     "models/player/ct_gign.mdl"
 };
 
-char tmodels[4][] = 
+new String:tmodels[4][] = 
 {
     "models/player/t_phoenix.mdl",
     "models/player/t_leet.mdl",
     "models/player/t_arctic.mdl",
     "models/player/t_guerilla.mdl"
 };
+
 
 // Native interface
 public void __ext_core_SetNTVOptional()
@@ -939,6 +936,8 @@ public Event_PlayerSpawn(Handle:event, String:name[], bool:dontBroadcast)
 	return 0;
 }
 
+
+
 void FreezePlayers()
 {
 	
@@ -1671,12 +1670,11 @@ public Action:Timer_UnFreezePlayer(Handle:timer, any:client)
 
 ClearTimer(&Handle:timer)
 {
-	if (timer)
-	{
-		KillTimer(timer, false);
-		timer = 0;
-	}
-	return 0;
+    if(timer != INVALID_HANDLE)
+    {
+        KillTimer(timer);
+        timer = INVALID_HANDLE;
+    }
 }
 
 set_random_model(client, team)
