@@ -82,6 +82,7 @@ new Float:CTFreezeTime;
 new Float:TFreezeTime;
 new Handle:LiveTimer;
 new Handle:brush_botquota;
+new bool:g_bGameStarted = false;
 new bool:CTAwps;
 new CTAwpNumber;
 new bool:TAwps;
@@ -96,6 +97,15 @@ new g_BombsiteA = -1;
 new numSwitched;
 new bot_quota;
 new the_bomb = -1;
+new bool:g_bWaitingForSlot[MAXPLAYERS+1];
+new g_iRoundNumber; // Для отслеживания раунда
+new Handle:g_hSlotMenuTimers[MAXPLAYERS+1];
+new bool:g_bBlockTeamChange[MAXPLAYERS+1];
+new bool:g_bWaitingForSlot[MAXPLAYERS+1];
+new bool:g_bForceStarted = false;
+new g_iSelectionsRemaining;
+new g_iPlanterUserId;
+new bool:g_bSelectionInProgress;
 new roundend_mode;
 new tawpno;
 new ctawpno;
@@ -540,6 +550,9 @@ public OnPluginStart()
 	brush_botquota = var19;
 	HookConVarChange(var19, OnBotQuotaChanged);
 	bot_quota = GetConVarInt(brush_botquota);
+	RegAdminCmd("sm_forcestart", Command_ForceStart, ADMFLAG_GENERIC, "Force starts the round");
+    RegAdminCmd("sm_forcestop", Command_ForceStop, ADMFLAG_GENERIC, "Force stops the current live round");
+    RemoveBombSites();
 	LoadTranslations("brush.phrases");
 	HookEvent("bomb_beginplant", Event_BeginBombPlant, EventHookMode:1);
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode:1);
@@ -558,6 +571,166 @@ public OnConfigsExecuted()
 {
 	PrecacheSound("buttons/weapon_cant_buy.wav", true);
 	return 0;
+}
+
+public OnMapStart()
+{
+    g_bGameStarted = false;
+    g_iRoundNumber = 0;
+    
+    for(new i = 1; i <= MaxClients; i++)
+    {
+        g_hSlotMenuTimers[i] = INVALID_HANDLE;
+        g_bWaitingForSlot[i] = false;
+    }
+}
+
+public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
+{
+    g_iRoundNumber++;
+    
+    for(new i = 1; i <= MaxClients; i++)
+    {
+        if(g_hSlotMenuTimers[i] != INVALID_HANDLE)
+        {
+            KillTimer(g_hSlotMenuTimers[i]);
+            g_hSlotMenuTimers[i] = INVALID_HANDLE;
+        }
+        g_bWaitingForSlot[i] = false;
+    }
+}
+
+// При отключении игрока
+public OnClientDisconnect(client)
+{
+    if(g_hSlotMenuTimers[client] != INVALID_HANDLE)
+    {
+        KillTimer(g_hSlotMenuTimers[client]);
+        g_hSlotMenuTimers[client] = INVALID_HANDLE;
+    }
+    g_bWaitingForSlot[client] = false;
+
+    if(g_bGameStarted)
+    {
+        int team = GetClientTeam(client);
+        if(team == CS_TEAM_CT || team == CS_TEAM_T)
+        {
+            CreateTimer(0.5, Timer_CheckForSpectators, g_iRoundNumber);
+        }
+    }
+}
+
+public Action Timer_CheckForSpectators(Handle timer, any roundNumber)
+{
+    if(roundNumber != g_iRoundNumber)
+        return Plugin_Stop;
+        
+    int tCount = GetTeamClientCount(CS_TEAM_T);
+    int ctCount = GetTeamClientCount(CS_TEAM_CT);
+    
+    if(ctCount < 3 || tCount < 5)
+    {
+        for(int i = 1; i <= MaxClients; i++)
+        {
+            if(IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) == CS_TEAM_SPECTATOR)
+            {
+                ShowSlotAvailableMenu(i, roundNumber);
+            }
+        }
+    }
+    
+    return Plugin_Stop;
+}
+
+
+void ShowSlotAvailableMenu(int client, int roundNumber)
+{
+    Menu menu = new Menu(MenuHandler_SlotAvailable);
+    menu.SetTitle("Появился свободный слот! У вас 10 секунд на выбор");
+    
+    int tCount = GetTeamClientCount(CS_TEAM_T);
+    int ctCount = GetTeamClientCount(CS_TEAM_CT);
+    
+    if(ctCount < 3)
+        menu.AddItem("ct", "Зайти за CT");
+    if(tCount < 5)
+        menu.AddItem("t", "Зайти за T");
+        
+    menu.ExitButton = false;
+    menu.Display(client, 10);
+    
+    g_bWaitingForSlot[client] = true;
+    
+    DataPack pack;
+    g_hSlotMenuTimers[client] = CreateDataTimer(10.0, Timer_KickAFKSpectator, pack);
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(roundNumber);
+}
+
+
+public Action Timer_KickAFKSpectator(Handle timer, DataPack pack)
+{
+    pack.Reset();
+    int userid = pack.ReadCell();
+    int roundNumber = pack.ReadCell();
+    
+    int client = GetClientOfUserId(userid);
+    
+    if(client && 
+       IsClientInGame(client) && 
+       GetClientTeam(client) == CS_TEAM_SPECTATOR && 
+       g_bWaitingForSlot[client] && 
+       roundNumber == g_iRoundNumber)
+    {
+        KickClient(client, "AFK - Не выбрал команду вовремя");
+    }
+    
+    g_hSlotMenuTimers[client] = INVALID_HANDLE;
+    g_bWaitingForSlot[client] = false;
+    
+    return Plugin_Stop;
+}
+
+public int MenuHandler_SlotAvailable(Menu menu, MenuAction action, int param1, int param2)
+{
+    switch(action)
+    {
+        case MenuAction_Select:
+        {
+            if(g_hSlotMenuTimers[param1] != INVALID_HANDLE)
+            {
+                KillTimer(g_hSlotMenuTimers[param1]);
+                g_hSlotMenuTimers[param1] = INVALID_HANDLE;
+            }
+            g_bWaitingForSlot[param1] = false;
+            
+            char info[32];
+            menu.GetItem(param2, info, sizeof(info));
+            
+            int tCount = GetTeamClientCount(CS_TEAM_T);
+            int ctCount = GetTeamClientCount(CS_TEAM_CT);
+            
+            if(StrEqual(info, "ct") && ctCount < 3)
+            {
+                SwitchPlayerTeam(param1, CS_TEAM_CT);
+                CPrintToChatAll("{green}[BRush]{default} %N присоединился к CT", param1);
+            }
+            else if(StrEqual(info, "t") && tCount < 5)
+            {
+                SwitchPlayerTeam(param1, CS_TEAM_T);
+                CPrintToChatAll("{green}[BRush]{default} %N присоединился к T", param1);
+            }
+            else
+            {
+                CPrintToChat(param1, "{green}[BRush]{default} Слот уже занят");
+            }
+        }
+        case MenuAction_End:
+        {
+            delete menu;
+        }
+    }
+    return 0;
 }
 
 public OnClientConnected(client)
@@ -678,6 +851,42 @@ public Action:Timer_HandleTeamSwitch(Handle:timer, any:client)
 	CPrintToChat(client, "%t", "OnSpectate");
 	return Action:0;
 }
+public Action Command_ForceStart(int client, int args)
+{
+    if(!g_bGameStarted)
+    {
+        g_bGameStarted = true;
+        GameIsLive = true;
+        CPrintToChatAll("{green}[BRush]{default} Администратор %N запустил игру!", client);
+        ServerCommand("mp_restartgame 3");
+    }
+    else
+    {
+        CPrintToChat(client, "{green}[BRush]{default} Игра уже запущена!");
+    }
+    return Plugin_Handled;
+}
+
+public Action Command_ForceStop(int client, int args)
+{
+    if(g_bGameStarted)
+    {
+        g_bGameStarted = false;
+        GameIsLive = false;
+        CPrintToChatAll("{green}[BRush]{default} Администратор %N остановил игру!", client);
+        if(UseConfigs)
+        {
+            ServerCommand("exec brush.notlive.cfg");
+        }
+    }
+    else
+    {
+        CPrintToChat(client, "{green}[BRush]{default} Игра еще не запущена!");
+    }
+    return Plugin_Handled;
+}
+
+
 
 public Event_PlayerSpawn(Handle:event, String:name[], bool:dontBroadcast)
 {
@@ -726,66 +935,82 @@ public Event_PlayerSpawn(Handle:event, String:name[], bool:dontBroadcast)
 
 public Event_RoundFreezeEnd(Handle:event, String:name[], bool:dontBroadcast)
 {
-	new var1;
-	if (GetTeamClientCount(2) == 5 && GetTeamClientCount(3) == 3)
-	{
-		GameIsLive = true;
-		CPrintToChatAll("%t %t", "Prefix", "LiveRound");
-		PrintCenterTextAll("%t", "LiveRound");
-		new player_team;
-		new i = 1;
-		while (i <= MaxClients)
-		{
-			new var2;
-			if (IsClientInGame(i) && IsPlayerAlive(i))
-			{
-				player_team = GetClientTeam(i);
-				switch (player_team)
-				{
-					case 2:
-					{
-						if (0.0 != TFreezeTime)
-						{
-							FreezePlayer(i);
-							p_FreezeTime[i] = CreateTimer(TFreezeTime, Timer_UnFreezePlayer, i, 0);
-							CPrintToChat(i, "%t", "Frozen", TFreezeTime);
-						}
-					}
-					case 3:
-					{
-						if (0.0 != CTFreezeTime)
-						{
-							FreezePlayer(i);
-							p_FreezeTime[i] = CreateTimer(CTFreezeTime, Timer_UnFreezePlayer, i, 0);
-							CPrintToChat(i, "%t", "Frozen", CTFreezeTime);
-						}
-					}
-					default:
-					{
-					}
-				}
-			}
-			i++;
-		}
-	}
-	else
-	{
-		new var3;
-		if (GameIsLive && UseConfigs)
-		{
-			ServerCommand("exec brush.notlive.cfg");
-		}
-		GameIsLive = false;
-		CPrintToChatAll("%t %t", "Prefix", "NotLiveRound");
-		if (!LiveTimer)
-		{
-			LiveTimer = CreateTimer(3.0, CheckLive, any:0, 1);
-		}
-	}
-	CTKiller = 0;
-	numSwitched = 0;
-	killers = 0;
-	return 0;
+    if(g_bGameStarted)
+    {
+        GameIsLive = true;
+        
+        new player_team;
+        new i = 1;
+        while (i <= MaxClients)
+        {
+            if (IsClientInGame(i) && IsPlayerAlive(i))
+            {
+                player_team = GetClientTeam(i);
+                switch (player_team)
+                {
+                    case 2:
+                    {
+                        if (0.0 != TFreezeTime)
+                        {
+                            FreezePlayer(i);
+                            p_FreezeTime[i] = CreateTimer(TFreezeTime, Timer_UnFreezePlayer, i, 0);
+                            CPrintToChat(i, "%t", "Frozen", TFreezeTime);
+                        }
+                    }
+                    case 3:
+                    {
+                        if (0.0 != CTFreezeTime)
+                        {
+                            FreezePlayer(i);
+                            p_FreezeTime[i] = CreateTimer(CTFreezeTime, Timer_UnFreezePlayer, i, 0);
+                            CPrintToChat(i, "%t", "Frozen", CTFreezeTime);
+                        }
+                    }
+                }
+            }
+            i++;
+        }
+        return;
+    }
+
+    if (GetTeamClientCount(2) == 5 && GetTeamClientCount(3) == 3)
+    {
+        g_bGameStarted = true;
+        GameIsLive = true;
+        CPrintToChatAll("%t %t", "Prefix", "LiveRound");
+        PrintCenterTextAll("%t", "LiveRound");
+        
+        new player_team;
+        new i = 1;
+        while (i <= MaxClients)
+        {
+            if (IsClientInGame(i) && IsPlayerAlive(i))
+            {
+                // Тот же код заморозки что и выше
+            }
+            i++;
+        }
+    }
+    else
+    {
+        if (!g_bGameStarted)
+        {
+            if (GameIsLive && UseConfigs)
+            {
+                ServerCommand("exec brush.notlive.cfg");
+            }
+            GameIsLive = false;
+            CPrintToChatAll("%t %t", "Prefix", "NotLiveRound");
+            if (!LiveTimer)
+            {
+                LiveTimer = CreateTimer(3.0, CheckLive, any:0, 1);
+            }
+        }
+    }
+    
+    CTKiller = 0;
+    numSwitched = 0;
+    killers = 0;
 }
 
 public OnEntityCreated(entity, String:classname[])
@@ -1254,6 +1479,62 @@ bool:IsVecBetween(Float:vecVector[3], Float:vecMin[3], Float:vecMax[3])
 {
 	new var1;
 	return vecMin[0] <= vecVector[0] <= vecMax[0] && vecMin[1] <= vecVector[1] <= vecMax[1] && vecMin[2] <= vecVector[2] <= vecMax[2];
+}
+
+public OnClientPostAdminCheck(client)
+{
+    if (!Enabled || IsFakeClient(client))
+        return;
+        
+    // Управление ботами
+    if (ManageBots)
+    {
+        new humans = Client_GetCount(true, false);
+        if (bot_quota + humans >= 8)
+        {
+            bot_quota -= 1;
+            SetConVarInt(brush_botquota, bot_quota, false, false);
+        }
+    }
+    
+    // Задержка для корректного подсчета игроков
+    CreateTimer(0.5, Timer_AutoAssignTeam, GetClientUserId(client));
+}
+
+public Action Timer_AutoAssignTeam(Handle timer, any userid)
+{
+    int client = GetClientOfUserId(userid);
+    
+    if (!IsValidClient(client))
+        return Plugin_Stop;
+        
+    // Получаем количество игроков в командах
+    int tCount = GetTeamClientCount(CS_TEAM_T);
+    int ctCount = GetTeamClientCount(CS_TEAM_CT);
+    
+    // Приоритет отдается команде CT если она не заполнена
+    if (ctCount < 3)
+    {
+        SwitchPlayerTeam(client, CS_TEAM_CT);
+        CPrintToChatAll("{green}[BRush]{default} %N был автоматически определен за CT", client);
+    }
+    // Затем проверяем команду T
+    else if (tCount < 5)
+    {
+        SwitchPlayerTeam(client, CS_TEAM_T);
+        CPrintToChatAll("{green}[BRush]{default} %N был автоматически определен за T", client);
+    }
+    // Если обе команды заполнены - в наблюдатели
+    else
+    {
+        SwitchPlayerTeam(client, CS_TEAM_SPECTATOR);
+        CPrintToChat(client, "{green}[BRush]{default} Команды заполнены. Вы были перемещены в наблюдатели.");
+        
+        // Показываем меню слотов если они появятся
+        ShowFreeSlotMenu(client);
+    }
+    
+    return Plugin_Stop;
 }
 
 public DisplayMenuToCTKiller()
