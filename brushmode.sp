@@ -8,6 +8,10 @@
 #include <sourcemod>
 #include <cstrike>
 #include <sdktools>
+
+#pragma semicolon 1
+#pragma newdecls required
+
 public Extension:__ext_core =
 {
 	name = "Core",
@@ -846,7 +850,7 @@ public Action:Timer_HandleTeamSwitch(Handle:timer, any:client)
 	CPrintToChat(client, "%t", "OnSpectate");
 	return Action:0;
 }
-public Action:Command_ForceStart(client, args)
+public Action Command_ForceStart(int client, int args)
 {
     if(!g_bGameStarted)
     {
@@ -854,15 +858,14 @@ public Action:Command_ForceStart(client, args)
         GameIsLive = true;
         CPrintToChatAll("{green}[BRush]{default} Администратор %N запустил игру!", client);
         ServerCommand("mp_restartgame 3");
+        return Plugin_Handled;
     }
-    else
-    {
-        CPrintToChat(client, "{green}[BRush]{default} Игра уже запущена!");
-    }
+    
+    CPrintToChat(client, "{green}[BRush]{default} Игра уже запущена!");
     return Plugin_Handled;
 }
 
-public Action:Command_ForceStop(client, args)
+public Action Command_ForceStop(int client, int args)
 {
     if(g_bGameStarted)
     {
@@ -873,11 +876,10 @@ public Action:Command_ForceStop(client, args)
         {
             ServerCommand("exec brush.notlive.cfg");
         }
+        return Plugin_Handled;
     }
-    else
-    {
-        CPrintToChat(client, "{green}[BRush]{default} Игра еще не запущена!");
-    }
+    
+    CPrintToChat(client, "{green}[BRush]{default} Игра еще не запущена!");
     return Plugin_Handled;
 }
 
@@ -928,9 +930,58 @@ public Event_PlayerSpawn(Handle:event, String:name[], bool:dontBroadcast)
 	return 0;
 }
 
-public Event_RoundFreezeEnd(Handle event, const char[] name, bool dontBroadcast)
+void FreezePlayers()
 {
-    // Если игра уже запущена - пропускаем проверки
+	
+	 SetEntityMoveType(client, MOVETYPE_NONE);
+    IsPlayerFrozen[client] = true;
+    for(int i = 1; i <= MaxClients; i++)
+    {
+        if(IsClientInGame(i) && IsPlayerAlive(i))
+        {
+            int player_team = GetClientTeam(i);
+            switch(player_team)
+            {
+                case CS_TEAM_T:
+                {
+                    if(TFreezeTime > 0.0)
+                    {
+                        FreezePlayer(i);
+                        p_FreezeTime[i] = CreateTimer(TFreezeTime, Timer_UnFreezePlayer, i);
+                        CPrintToChat(i, "%t", "Frozen", TFreezeTime);
+                    }
+                }
+                case CS_TEAM_CT:
+                {
+                    if(CTFreezeTime > 0.0)
+                    {
+                        FreezePlayer(i);
+                        p_FreezeTime[i] = CreateTimer(CTFreezeTime, Timer_UnFreezePlayer, i);
+                        CPrintToChat(i, "%t", "Frozen", CTFreezeTime);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void RemoveBombSites()
+{
+    int ent = -1;
+    while((ent = FindEntityByClassname(ent, "func_bomb_target")) != -1)
+    {
+        AcceptEntityInput(ent, "Kill");
+    }
+    
+    ent = -1;
+    while((ent = FindEntityByClassname(ent, "info_bomb_target")) != -1)
+    {
+        AcceptEntityInput(ent, "Kill");
+    }
+}
+
+public void Event_RoundFreezeEnd(Handle event, const char[] name, bool dontBroadcast)
+{
     if(g_bGameStarted)
     {
         GameIsLive = true;
@@ -938,8 +989,7 @@ public Event_RoundFreezeEnd(Handle event, const char[] name, bool dontBroadcast)
         return;
     }
 
-    // Проверяем условия для старта игры
-    if (GetTeamClientCount(CS_TEAM_T) == 5 && GetTeamClientCount(CS_TEAM_CT) == 3)
+    if(GetTeamClientCount(CS_TEAM_T) == 5 && GetTeamClientCount(CS_TEAM_CT) == 3)
     {
         g_bGameStarted = true;
         GameIsLive = true;
@@ -950,44 +1000,9 @@ public Event_RoundFreezeEnd(Handle event, const char[] name, bool dontBroadcast)
     {
         GameIsLive = false;
         CPrintToChatAll("{green}[BRush]{default} Ожидание игроков...");
-        if (!LiveTimer)
+        if(!LiveTimer)
         {
             LiveTimer = CreateTimer(3.0, CheckLive, _, TIMER_REPEAT);
-        }
-    }
-
-    if (GetTeamClientCount(2) == 5 && GetTeamClientCount(3) == 3)
-    {
-        g_bGameStarted = true;
-        GameIsLive = true;
-        CPrintToChatAll("%t %t", "Prefix", "LiveRound");
-        PrintCenterTextAll("%t", "LiveRound");
-        
-        new player_team;
-        new i = 1;
-        while (i <= MaxClients)
-        {
-            if (IsClientInGame(i) && IsPlayerAlive(i))
-            {
-                // Тот же код заморозки что и выше
-            }
-            i++;
-        }
-    }
-    else
-    {
-        if (!g_bGameStarted)
-        {
-            if (GameIsLive && UseConfigs)
-            {
-                ServerCommand("exec brush.notlive.cfg");
-            }
-            GameIsLive = false;
-            CPrintToChatAll("%t %t", "Prefix", "NotLiveRound");
-            if (!LiveTimer)
-            {
-                LiveTimer = CreateTimer(3.0, CheckLive, any:0, 1);
-            }
         }
     }
     
