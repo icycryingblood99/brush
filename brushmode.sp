@@ -255,115 +255,113 @@ void EmitSoundToClient(int client, const char[] sample, int entity = SOUND_FROM_
     EmitSound(clients, 1, sample, entity, channel, level, flags, volume, pitch, speakerentity, origin, dir, updatePos, soundtime);
 }
 
-CPrintToChat(client, String:szMessage[])
+CPrintToChat(client, String:szMessage[], any:...)
 {
-	new var1;
-	if (client <= 0 || client > MaxClients)
-	{
-		ThrowError("Invalid client index %d", client);
-	}
-	if (!IsClientInGame(client))
-	{
-		ThrowError("Client %d is not in game", client);
-	}
-	decl String:szBuffer[252];
-	decl String:szCMessage[252];
-	SetGlobalTransTarget(client);
-	Format(szBuffer, 250, "\x01%s", szMessage);
-	VFormat(szCMessage, 250, szBuffer, 3);
-	new index = CFormat(szCMessage, 250, -1);
-	if (index == -1)
-	{
-		PrintToChat(client, szCMessage);
-	}
-	else
-	{
-		CSayText2(client, index, szCMessage);
-	}
-	return 0;
+    decl String:szBuffer[252];
+    
+    if(client <= 0 || client > MaxClients)
+    {
+        ThrowError("Invalid client index %d", client);
+    }
+    if(!IsClientInGame(client))
+    {
+        ThrowError("Client %d is not in game", client);
+    }
+    
+    SetGlobalTransTarget(client);
+    VFormat(szBuffer, sizeof(szBuffer), szMessage, 3);
+    
+    new index = CFormat(szBuffer, sizeof(szBuffer), client);
+    if(index == -1)
+    {
+        PrintToChat(client, "%s", szBuffer);
+    }
+    else
+    {
+        CSayText2(client, index, szBuffer);
+    }
 }
 
-CPrintToChatAll(String:szMessage[])
+CPrintToChatAll(String:szMessage[], any:...)
 {
-	decl String:szBuffer[252];
-	new i = 1;
-	while (i <= MaxClients)
-	{
-		new var1;
-		if (IsClientInGame(i) && !IsFakeClient(i) && !CSkipList[i])
-		{
-			SetGlobalTransTarget(i);
-			VFormat(szBuffer, 250, szMessage, 2);
-			CPrintToChat(i, szBuffer);
-		}
-		CSkipList[i] = 0;
-		i++;
-	}
-	return 0;
+    decl String:szBuffer[252];
+    
+    for(new i = 1; i <= MaxClients; i++)
+    {
+        if(IsClientInGame(i) && !IsFakeClient(i) && !CSkipList[i])
+        {
+            SetGlobalTransTarget(i);
+            VFormat(szBuffer, sizeof(szBuffer), szMessage, 2);
+            CPrintToChat(i, szBuffer);
+        }
+        CSkipList[i] = false;
+    }
 }
 
 CFormat(String:szMessage[], maxlength, author)
 {
-	if (!CEventIsHooked)
-	{
-		CSetupProfile();
-		HookEvent("server_spawn", CEvent_MapStart, EventHookMode:2);
-		CEventIsHooked = true;
-	}
-	new iRandomPlayer = -1;
-	if (author != -1)
-	{
-		if (CProfile_SayText2)
-		{
-			ReplaceString(szMessage, maxlength, "{teamcolor}", "\x03", true);
-			iRandomPlayer = author;
-		}
-		else
-		{
-			ReplaceString(szMessage, maxlength, "{teamcolor}", CTagCode[1], true);
-		}
-	}
-	else
-	{
-		ReplaceString(szMessage, maxlength, "{teamcolor}", "", true);
-	}
-	new i;
-	while (i < 6)
-	{
-		if (!(StrContains(szMessage, CTag[i], true) == -1))
-		{
-			if (!CProfile_Colors[i])
-			{
-				ReplaceString(szMessage, maxlength, CTag[i], CTagCode[1], true);
-			}
-			else
-			{
-				if (!CTagReqSayText2[i])
-				{
-					ReplaceString(szMessage, maxlength, CTag[i], CTagCode[i], true);
-				}
-				if (!CProfile_SayText2)
-				{
-					ReplaceString(szMessage, maxlength, CTag[i], CTagCode[1], true);
-				}
-				if (iRandomPlayer == -1)
-				{
-					iRandomPlayer = CFindRandomPlayerByTeam(CProfile_TeamIndex[i]);
-					if (iRandomPlayer == -2)
-					{
-						ReplaceString(szMessage, maxlength, CTag[i], CTagCode[1], true);
-					}
-					else
-					{
-						ReplaceString(szMessage, maxlength, CTag[i], CTagCode[i], true);
-					}
-				}
-				ThrowError("Using two team colors in one message is not allowed");
-			}
-		}
-		i++;
-	}
-	return iRandomPlayer;
+    if(!CEventIsHooked)
+    {
+        CSetupProfile();
+        HookEvent("server_spawn", CEvent_MapStart, EventHookMode:2);
+        CEventIsHooked = true;
+    }
+    
+    new iRandomPlayer = -1;
+    
+    if(author != -1)
+    {
+        if(CProfile_SayText2)
+        {
+            ReplaceString(szMessage, maxlength, "{teamcolor}", "\x03", true);
+            iRandomPlayer = author;
+        }
+        else
+        {
+            ReplaceString(szMessage, maxlength, "{teamcolor}", CTagCode[1], true);
+        }
+    }
+    else
+    {
+        ReplaceString(szMessage, maxlength, "{teamcolor}", "", true);
+    }
+    
+    for(new i = 0; i < 6; i++)
+    {
+        if(StrContains(szMessage, CTag[i], false) != -1)
+        {
+            if(!CProfile_Colors[i])
+            {
+                ReplaceString(szMessage, maxlength, CTag[i], CTagCode[1], true);
+            }
+            else
+            {
+                if(!CTagReqSayText2[i])
+                {
+                    ReplaceString(szMessage, maxlength, CTag[i], CTagCode[i], true);
+                }
+                if(!CProfile_SayText2)
+                {
+                    ReplaceString(szMessage, maxlength, CTag[i], CTagCode[1], true);
+                }
+                
+                if(iRandomPlayer == -1)
+                {
+                    iRandomPlayer = CFindRandomPlayerByTeam(CProfile_TeamIndex[i]);
+                    if(iRandomPlayer == -2)
+                    {
+                        ReplaceString(szMessage, maxlength, CTag[i], CTagCode[1], true);
+                    }
+                    else
+                    {
+                        ReplaceString(szMessage, maxlength, CTag[i], CTagCode[i], true);
+                    }
+                }
+            }
+        }
+    }
+    
+    return iRandomPlayer;
 }
 
 CFindRandomPlayerByTeam(color_team)
@@ -480,10 +478,16 @@ public Action:CEvent_MapStart(Handle:event, String:name[], bool:dontBroadcast)
 	return Action:0;
 }
 
-public OnPluginStart()
+public ()
 {
 	
 	MarkOptionalNatives();
+	MarkNativeAsOptional("GetFeatureStatus");
+    MarkNativeAsOptional("RequireFeature");
+    MarkNativeAsOptional("AddCommandListener");
+    MarkNativeAsOptional("RemoveCommandListener");
+    VerifyCoreVersion();
+	
 	new Handle:hRandom;
 	new var1 = CreateConVar("sm_brush_version", "19.09.2016", "Version of 'CSS BRush'", 393536, false, 0.0, false, 0.0);
 	hRandom = var1;
