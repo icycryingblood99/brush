@@ -3,6 +3,8 @@
 #include <sourcemod>
 #include <cstrike>
 #include <sdktools>
+#include <sdktools_sound>
+#include <sdktools_functions>
 
 #define MAXSLOTS 66
 
@@ -154,64 +156,6 @@ stock MarkOptionalNatives()
     VerifyCoreVersion();
 }
 
-bool:operator!=(Float:,Float:)(Float:oper1, Float:oper2)
-{
-	return FloatCompare(oper1, oper2) != 0;
-}
-
-bool:operator<=(Float:,Float:)(Float:oper1, Float:oper2)
-{
-	return FloatCompare(oper1, oper2) <= 0;
-}
-
-bool:StrEqual(String:str1[], String:str2[], bool:caseSensitive)
-{
-	return strcmp(str1, str2, caseSensitive) == 0;
-}
-
-Handle:StartMessageOne(String:msgname[], client, flags)
-{
-	new players[1];
-	players[0] = client;
-	return StartMessage(msgname, players, 1, flags);
-}
-
-PrintCenterTextAll(String:format[])
-{
-	decl String:buffer[192];
-	new i = 1;
-	while (i <= MaxClients)
-	{
-		if (IsClientInGame(i))
-		{
-			SetGlobalTransTarget(i);
-			VFormat(buffer, 192, format, 2);
-			PrintCenterText(i, "%s", buffer);
-		}
-		i++;
-	}
-	return 0;
-}
-
-GetEntSendPropOffs(ent, String:prop[], bool:actual)
-{
-	decl String:cls[64];
-	if (!GetEntityNetClass(ent, cls, 64))
-	{
-		return -1;
-	}
-	if (actual)
-	{
-		return FindSendPropInfo(cls, prop, 0, 0, 0);
-	}
-	return FindSendPropOffs(cls, prop);
-}
-
-bool:GetEntityClassname(entity, String:clsname[], maxlength)
-{
-	return !!GetEntPropString(entity, PropType:1, "m_iClassname", clsname, maxlength, 0);
-}
-
 void SetEntityRenderColor(int entity, int r, int g, int b, int a)
 {
     static bool gotconfig;
@@ -255,7 +199,7 @@ void EmitSoundToClient(int client, const char[] sample, int entity = SOUND_FROM_
     EmitSound(clients, 1, sample, entity, channel, level, flags, volume, pitch, speakerentity, origin, dir, updatePos, soundtime);
 }
 
-CPrintToChat(client, String:szMessage[], any:...)
+BRush_PrintToChat(client, String:szMessage[], any:...)
 {
     decl String:szBuffer[252];
     
@@ -282,7 +226,7 @@ CPrintToChat(client, String:szMessage[], any:...)
     }
 }
 
-CPrintToChatAll(String:szMessage[], any:...)
+BRush_PrintToChatAll(String:szMessage[], any:...)
 {
     decl String:szBuffer[252];
     
@@ -292,7 +236,7 @@ CPrintToChatAll(String:szMessage[], any:...)
         {
             SetGlobalTransTarget(i);
             VFormat(szBuffer, sizeof(szBuffer), szMessage, 2);
-            CPrintToChat(i, szBuffer);
+            BRush_PrintToChat(i, szBuffer);
         }
         CSkipList[i] = false;
     }
@@ -478,11 +422,11 @@ public Action:CEvent_MapStart(Handle:event, String:name[], bool:dontBroadcast)
 	return Action:0;
 }
 
-public ()
+public OnPluginStart()
 {
 	
-	MarkOptionalNatives();
-	MarkNativeAsOptional("GetFeatureStatus");
+    // Отмечаем опциональные нативы
+    MarkNativeAsOptional("GetFeatureStatus");
     MarkNativeAsOptional("RequireFeature");
     MarkNativeAsOptional("AddCommandListener");
     MarkNativeAsOptional("RemoveCommandListener");
@@ -664,7 +608,7 @@ void ShowSlotAvailableMenu(client)
     
     if(tCount > 5)
     {
-        CPrintToChat(client, "{green}[BRush]{default} В данный момент идет выбор напарника, ожидайте.");
+        BRush_PrintToChat(client, "{green}[BRush]{default} В данный момент идет выбор напарника, ожидайте.");
         CloseHandle(menu);
         return;
     }
@@ -726,16 +670,16 @@ public MenuHandler_SlotAvailable(Handle:menu, MenuAction:action, param1, param2)
         if(StrEqual(info, "ct") && ctCount < 3)
         {
             SwitchPlayerTeam(param1, CS_TEAM_CT);
-            CPrintToChatAll("{green}[BRush]{default} %N присоединился к CT", param1);
+            BRush_PrintToChatAll("{green}[BRush]{default} %N присоединился к CT", param1);
         }
         else if(StrEqual(info, "t") && tCount < 5)
         {
             SwitchPlayerTeam(param1, CS_TEAM_T);
-            CPrintToChatAll("{green}[BRush]{default} %N присоединился к T", param1);
+            BRush_PrintToChatAll("{green}[BRush]{default} %N присоединился к T", param1);
         }
         else
         {
-            CPrintToChat(param1, "{green}[BRush]{default} Слот уже занят");
+            BRush_PrintToChat(param1, "{green}[BRush]{default} Слот уже занят");
         }
     }
     else if(action == MenuAction_End)
@@ -798,7 +742,7 @@ public Action:Command_JoinTeam(client, String:command[], argc)
 	if ((team == 2 && tCount >= 5) || (team == 3 && ctCount >= 3))
 	{
 		SwitchPlayerTeam(client, 1);
-		CPrintToChat(client, "%t", "CantJoin");
+		BRush_PrintToChat(client, "%t", "CantJoin");
 		return Action:4;
 	}
 	return Action:0;
@@ -836,7 +780,7 @@ public Action:Event_PlayerTeam(Handle:event, String:name[], bool:dontBroadcast)
 	new var2;
 	if ((team == 2 && tCount >= 5) || (team == 3 && ctCount >= 3))
 	{
-		CPrintToChat(client, "%t", "CantJoin");
+		BRush_PrintToChat(client, "%t", "CantJoin");
 		ClientTimer[client] = CreateTimer(0.1, Timer_HandleTeamSwitch, client, 0);
 		return Action:3;
 	}
@@ -849,17 +793,17 @@ public Action:Timer_HandleTeamSwitch(Handle:timer, any:client)
 	if (GetTeamClientCount(3) < 3)
 	{
 		SwitchPlayerTeam(client, 3);
-		CPrintToChat(client, "%t", "OnCT");
+		BRush_PrintToChat(client, "%t", "OnCT");
 		return Action:3;
 	}
 	if (GetTeamClientCount(2) < 5)
 	{
 		SwitchPlayerTeam(client, 2);
-		CPrintToChat(client, "%t", "OnT");
+		BRush_PrintToChat(client, "%t", "OnT");
 		return Action:3;
 	}
 	SwitchPlayerTeam(client, 1);
-	CPrintToChat(client, "%t", "OnSpectate");
+	BRush_PrintToChat(client, "%t", "OnSpectate");
 	return Action:0;
 }
 public Action Command_ForceStart(int client, int args)
@@ -868,12 +812,12 @@ public Action Command_ForceStart(int client, int args)
     {
         g_bGameStarted = true;
         GameIsLive = true;
-        CPrintToChatAll("{green}[BRush]{default} Администратор %N запустил игру!", client);
+        BRush_PrintToChatAll("{green}[BRush]{default} Администратор %N запустил игру!", client);
         ServerCommand("mp_restartgame 3");
         return Plugin_Handled;
     }
     
-    CPrintToChat(client, "{green}[BRush]{default} Игра уже запущена!");
+    BRush_PrintToChat(client, "{green}[BRush]{default} Игра уже запущена!");
     return Plugin_Handled;
 }
 
@@ -883,7 +827,7 @@ public Action Command_ForceStop(int client, int args)
     {
         g_bGameStarted = false;
         GameIsLive = false;
-        CPrintToChatAll("{green}[BRush]{default} Администратор %N остановил игру!", client);
+        BRush_PrintToChatAll("{green}[BRush]{default} Администратор %N остановил игру!", client);
         if(UseConfigs)
         {
             ServerCommand("exec brush.notlive.cfg");
@@ -891,7 +835,7 @@ public Action Command_ForceStop(int client, int args)
         return Plugin_Handled;
     }
     
-    CPrintToChat(client, "{green}[BRush]{default} Игра еще не запущена!");
+    BRush_PrintToChat(client, "{green}[BRush]{default} Игра еще не запущена!");
     return Plugin_Handled;
 }
 
@@ -962,7 +906,7 @@ void FreezePlayers()
                     {
                         FreezePlayer(i);
                         p_FreezeTime[i] = CreateTimer(TFreezeTime, Timer_UnFreezePlayer, i);
-                        CPrintToChat(i, "%t", "Frozen", TFreezeTime);
+                        BRush_PrintToChat(i, "%t", "Frozen", TFreezeTime);
                     }
                 }
                 case CS_TEAM_CT:
@@ -971,7 +915,7 @@ void FreezePlayers()
                     {
                         FreezePlayer(i);
                         p_FreezeTime[i] = CreateTimer(CTFreezeTime, Timer_UnFreezePlayer, i);
-                        CPrintToChat(i, "%t", "Frozen", CTFreezeTime);
+                        BRush_PrintToChat(i, "%t", "Frozen", CTFreezeTime);
                     }
                 }
             }
@@ -1007,13 +951,13 @@ public void Event_RoundFreezeEnd(Handle event, const char[] name, bool dontBroad
     {
         g_bGameStarted = true;
         GameIsLive = true;
-        CPrintToChatAll("{green}[BRush]{default} Раунд начался!");
+        BRush_PrintToChatAll("{green}[BRush]{default} Раунд начался!");
         FreezePlayers();
     }
     else if(!g_bGameStarted)
     {
         GameIsLive = false;
-        CPrintToChatAll("{green}[BRush]{default} Ожидание игроков...");
+        BRush_PrintToChatAll("{green}[BRush]{default} Ожидание игроков...");
         if(!LiveTimer)
         {
             LiveTimer = CreateTimer(3.0, CheckLive, _, TIMER_REPEAT);
@@ -1052,7 +996,7 @@ public Action:CheckLive(Handle:timer)
 		new times;
 		while (times < 3)
 		{
-			CPrintToChatAll("%t", "RoundGoingLive");
+			BRush_PrintToChatAll("%t", "RoundGoingLive");
 			times++;
 		}
 		ServerCommand("mp_restartgame 3");
@@ -1083,12 +1027,12 @@ public Event_BombPickup(Handle:event, String:name[], bool:dontBroadcast)
 	}
 	if (StrEqual(s_bombsite, "A", false))
 	{
-		CPrintToChat(client, "%t", "PlantA");
+		BRush_PrintToChat(client, "%t", "PlantA");
 		return 0;
 	}
 	if (StrEqual(s_bombsite, "B", false))
 	{
-		CPrintToChat(client, "%t", "PlantB");
+		BRush_PrintToChat(client, "%t", "PlantB");
 		return 0;
 	}
 	LogMessage("ERROR WITH BOMB SITE CVAR - it's not set to A or B!!");
@@ -1111,12 +1055,12 @@ public Event_BeginBombPlant(Handle:event, String:name[], bool:dontBroadcast)
 	new var4;
 	if (StrEqual(s_bombsite, "B", false) && g_BombsiteB != bombsite)
 	{
-		CPrintToChat(client, "%t %t", "Prefix", "PlantB");
+		BRush_PrintToChat(client, "%t %t", "Prefix", "PlantB");
 	}
 	new var5;
 	if (StrEqual(s_bombsite, "A", false) && g_BombsiteA != bombsite)
 	{
-		CPrintToChat(client, "%t %t", "Prefix", "PlantA");
+		BRush_PrintToChat(client, "%t %t", "Prefix", "PlantA");
 	}
 	EmitSoundToClient(client, "buttons/weapon_cant_buy.wav", -2, 0, 75, 0, 1.0, 100, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 	new c4ent = GetPlayerWeaponSlot(client, 4);
@@ -1145,10 +1089,10 @@ public Event_PlayerDeath(Handle:event, String:name[], bool:dontBroadcast)
 		{
 			PlayerKilledCT[attacker]++;
 			PlayerSwitchable[victim] = 1;
-			CPrintToChat(victim, "%t", "CTKilled", attacker);
+			BRush_PrintToChat(victim, "%t", "CTKilled", attacker);
 			if (PlayerKilledCT[attacker] == 1)
 			{
-				CPrintToChat(attacker, "%t", "KilledCT", victim);
+				BRush_PrintToChat(attacker, "%t", "KilledCT", victim);
 				killers += 1;
 				PlayerSwitchable[attacker] = 1;
 				CTImmune[attacker] = 1;
@@ -1203,7 +1147,7 @@ public Event_RoundEnd(Handle:event, String:name[], bool:dontBroadcast)
 	else
 	{
 		CTScore += 1;
-		CPrintToChatAll("%t", "CTWon");
+		BRush_PrintToChatAll("%t", "CTWon");
 		if (CTScore >= 2)
 		{
 			CreateTimer(0.3, Announcement, any:0, 0);
@@ -1231,32 +1175,32 @@ public Action:Timer_SetScore(Handle:timer)
 
 public Action:Announcement(Handle:timer)
 {
-	CPrintToChatAll("%t", "CTWonAgain", CTScore);
+	BRush_PrintToChatAll("%t", "CTWonAgain", CTScore);
 	switch (CTScore)
 	{
 		case 3:
 		{
-			CPrintToChatAll("%t", "TTaunt3");
+			BRush_PrintToChatAll("%t", "TTaunt3");
 		}
 		case 4:
 		{
-			CPrintToChatAll("%t", "TTaunt4");
+			BRush_PrintToChatAll("%t", "TTaunt4");
 		}
 		case 5:
 		{
-			CPrintToChatAll("%t", "TTaunt5");
+			BRush_PrintToChatAll("%t", "TTaunt5");
 		}
 		case 6:
 		{
-			CPrintToChatAll("%t", "TTaunt6");
+			BRush_PrintToChatAll("%t", "TTaunt6");
 		}
 		case 7:
 		{
-			CPrintToChatAll("%t", "TTaunt7");
+			BRush_PrintToChatAll("%t", "TTaunt7");
 		}
 		case 8, 9, 10, 11, 12, 13, 14, 15:
 		{
-			CPrintToChatAll("%t", "Scrambling");
+			BRush_PrintToChatAll("%t", "Scrambling");
 			ScrambleTeams();
 		}
 		default:
@@ -1319,7 +1263,7 @@ public Action:ProcessTeam(Handle:timer)
 
 public Action:Timer_WhoWon(Handle:timer)
 {
-	CPrintToChatAll("%t", "TWon", killers);
+	BRush_PrintToChatAll("%t", "TWon", killers);
 	return Action:0;
 }
 
@@ -1393,7 +1337,7 @@ public Action:CS_OnBuyCommand(client, String:weapon[])
 	new var2;
 	if ((StrContains(weapon, "flashbang", false) != -1 && !AllowFlashBangs) || (StrContains(weapon, "smokegrenade", false) != -1 && !AllowSmokes) || (StrContains(weapon, "hegrenade", false) != -1 && !AllowHEGrenades))
 	{
-		CPrintToChat(client, "%t %t", "Prefix", "NoNade");
+		BRush_PrintToChat(client, "%t %t", "Prefix", "NoNade");
 		EmitSoundToClient(client, "buttons/weapon_cant_buy.wav", -2, 0, 75, 0, 1.0, 100, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 		return Action:3;
 	}
@@ -1421,12 +1365,12 @@ public Action:CS_OnBuyCommand(client, String:weapon[])
 			new var10;
 			if ((team == 3 && ctawpno > CTAwpNumber) || (team == 2 && tawpno > TAwpNumber))
 			{
-				CPrintToChat(client, "%t %t", "Prefix", "NoSniper");
+				BRush_PrintToChat(client, "%t %t", "Prefix", "NoSniper");
 				EmitSoundToClient(client, "buttons/weapon_cant_buy.wav", -2, 0, 75, 0, 1.0, 100, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 				return Action:3;
 			}
 		}
-		CPrintToChat(client, "%t %t", "Prefix", "NoSniper");
+		BRush_PrintToChat(client, "%t %t", "Prefix", "NoSniper");
 		EmitSoundToClient(client, "buttons/weapon_cant_buy.wav", -2, 0, 75, 0, 1.0, 100, -1, NULL_VECTOR, NULL_VECTOR, true, 0.0);
 		return Action:3;
 	}
@@ -1525,19 +1469,19 @@ public Action Timer_AutoAssignTeam(Handle timer, any userid)
     if (ctCount < 3)
     {
         SwitchPlayerTeam(client, CS_TEAM_CT);
-        CPrintToChatAll("{green}[BRush]{default} %N был автоматически определен за CT", client);
+        BRush_PrintToChatAll("{green}[BRush]{default} %N был автоматически определен за CT", client);
     }
     // Затем проверяем команду T
     else if (tCount < 5)
     {
         SwitchPlayerTeam(client, CS_TEAM_T);
-        CPrintToChatAll("{green}[BRush]{default} %N был автоматически определен за T", client);
+        BRush_PrintToChatAll("{green}[BRush]{default} %N был автоматически определен за T", client);
     }
     // Если обе команды заполнены - в наблюдатели
     else
     {
         SwitchPlayerTeam(client, CS_TEAM_SPECTATOR);
-        CPrintToChat(client, "{green}[BRush]{default} Команды заполнены. Вы были перемещены в наблюдатели.");
+        BRush_PrintToChat(client, "{green}[BRush]{default} Команды заполнены. Вы были перемещены в наблюдатели.");
         
         // Показываем меню слотов если они появятся
         ShowFreeSlotMenu(client);
@@ -1589,7 +1533,7 @@ public MenuHandler_Teams(Handle:menu, MenuAction:action, param1, param2)
 		}
 		else
 		{
-			CPrintToChat(client, "%t", "TooLate");
+			BRush_PrintToChat(client, "%t", "TooLate");
 		}
 		ClientTimer[param1] = CreateTimer(0.2, Timer_MoreTs, param1, 0);
 	}
@@ -1648,20 +1592,16 @@ public AddTerroristsToMenu(Handle:menu)
 	return 0;
 }
 
-public FreezePlayer(client)
+stock FreezePlayer(client)
 {
     SetEntityMoveType(client, MOVETYPE_NONE);
-	SetEntityRenderColor(client, 255, 0, 170, 174);
     IsPlayerFrozen[client] = true;
-	return 0;
 }
 
-public UnFreezePlayer(client)
+stock UnFreezePlayer(client)
 {
     SetEntityMoveType(client, MOVETYPE_WALK);
-	SetEntityRenderColor(client, 255, 255, 255, 255);
     IsPlayerFrozen[client] = false;
-	return 0;
 }
 
 public Action:Timer_UnFreezePlayer(Handle:timer, any:client)
@@ -1674,12 +1614,39 @@ public Action:Timer_UnFreezePlayer(Handle:timer, any:client)
 	return Action:0;
 }
 
-ClearTimer(&Handle:timer)
+stock ClearTimer(&Handle:timer)
 {
     if(timer != INVALID_HANDLE)
     {
         KillTimer(timer);
         timer = INVALID_HANDLE;
+    }
+}
+
+stock BRush_PrintToChat(client, const String:format[], any:...)
+{
+    decl String:buffer[254];
+    VFormat(buffer, sizeof(buffer), format, 3);
+    
+    if (client <= 0 || client > MaxClients)
+        ThrowError("Invalid client index %d", client);
+    if (!IsClientInGame(client))
+        ThrowError("Client %d is not in game", client);
+        
+    PrintToChat(client, "%s", buffer);
+}
+
+stock BRush_PrintToChatAll(const String:format[], any:...)
+{
+    decl String:buffer[254];
+    
+    for(new i = 1; i <= MaxClients; i++)
+    {
+        if(IsClientInGame(i) && !IsFakeClient(i))
+        {
+            VFormat(buffer, sizeof(buffer), format, 2);
+            PrintToChat(i, "%s", buffer);
+        }
     }
 }
 
