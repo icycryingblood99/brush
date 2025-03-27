@@ -78,10 +78,12 @@ public void OnPluginStart()
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Pre);
     
     // Хуки
-    AddCommandListener(Command_JoinTeam, "jointeam");
-    AddCommandListener(Command_JoinTeam, "chooseteam");
-    AddCommandListener(Command_BlockTeamMenu, "teammenu");
-    AddCommandListener(Command_BlockTeamMenu, "showteamselect");
+    //AddCommandListener(Command_BlockTeam, "jointeam");
+    AddCommandListener(Command_BlockTeam, "chooseteam");
+    AddCommandListener(Command_BlockTeam, "teammenu");
+    AddCommandListener(Command_BlockTeam, "showteamselect");
+    AddCommandListener(Command_BlockTeam, "changeteam");
+    AddCommandListener(Command_BlockTeam, "spec_menu");
     
     // Создаем конфиг если его нет
     CreateDefaultConfig();
@@ -171,6 +173,7 @@ public Action Command_BlockTeamMenu(int client, const char[] command, int args)
 public Action Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
     event.BroadcastDisabled = true;
+    SetEventBroadcast(event, true);
     return Plugin_Changed;
 }
 
@@ -204,6 +207,7 @@ public Action Timer_RespawnPlayer(Handle timer, any userId)
     }
     return Plugin_Stop;
 }
+
 
 public Action Timer_CheckPlayersForStart(Handle timer)
 {
@@ -402,7 +406,7 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
             g_iRoundsWon_T++;
             g_iConsecutiveCTWins = 0;
             
-            // Находим T с наибольшим количеством убийств CT
+            // Находим T с наибольшим количеством убийств
             int topKiller = 0;
             int maxKills = 0;
             
@@ -415,7 +419,18 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
                 }
             }
             
-            if(topKiller > 0)
+            // Сначала переносим всех CT за T
+            for(int i = 1; i <= MaxClients; i++)
+            {
+                if(IsValidClient(i) && GetClientTeam(i) == CS_TEAM_CT)
+                {
+                    CS_SwitchTeam(i, CS_TEAM_T);
+                    PrintColorChat(i, " %s %sВы перемещены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
+                }
+            }
+            
+            // Если есть топ киллер и у него есть убийства, переносим его за CT
+            if(topKiller > 0 && maxKills > 0)
             {
                 char topKillerName[MAX_NAME_LENGTH];
                 GetClientName(topKiller, topKillerName, sizeof(topKillerName));
@@ -427,33 +442,22 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
                         CS_SwitchTeam(topKiller, CS_TEAM_CT);
                         PrintColorChatAll(" \x04[BRush]\x01 Player \x07FF0000%s\x01 killed \x071 CT\x01 and moves to \x070000FFCounter-Terrorists!", topKillerName);
                     }
-					case 2:
-					{
-   						CS_SwitchTeam(topKiller, CS_TEAM_CT);
-    					TeleportToCTSpawn(topKiller);
-    					PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} Player {RED}%s{DEFAULT} killed {BLUE}2 CT{DEFAULT} and moves to {BLUE}Counter-Terrorists{DEFAULT}!", topKillerName);
-    					PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} %s can choose 1 teammate to join CT team!", topKillerName);
-    					CreateTimer(0.5, Timer_ShowTeammateMenu, GetClientUserId(topKiller));
-					}
-case 3:
-{
-    // Переносим всех CT за T
-    for(int i = 1; i <= MaxClients; i++)
-    {
-        if(IsValidClient(i) && GetClientTeam(i) == CS_TEAM_CT)
-        {
-            CS_SwitchTeam(i, CS_TEAM_T);
-            TeleportToTSpawn(i);
-            PrintColorChat(i, " {GREEN}[BRush]{DEFAULT} You have been moved to {RED}Terrorists");
-        }
-    }
-    
-    CS_SwitchTeam(topKiller, CS_TEAM_CT);
-    TeleportToCTSpawn(topKiller);
-    PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} Player {RED}%s{DEFAULT} killed {BLUE}ALL CT{DEFAULT} and moves to {BLUE}Counter-Terrorists{DEFAULT}!", topKillerName);
-    PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} %s can choose 2 teammates to join CT team!", topKillerName);
-    CreateTimer(0.5, Timer_ShowTeammateMenu, GetClientUserId(topKiller));
-}
+                    case 2:
+                    {
+                        CS_SwitchTeam(topKiller, CS_TEAM_CT);
+                        TeleportToCTSpawn(topKiller);
+                        PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} Player {RED}%s{DEFAULT} killed {BLUE}2 CT{DEFAULT} and moves to {BLUE}Counter-Terrorists{DEFAULT}!", topKillerName);
+                        PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} %s can choose 1 teammate to join CT team!", topKillerName);
+                        CreateTimer(0.5, Timer_ShowTeammateMenu, GetClientUserId(topKiller));
+                    }
+                    case 3:
+                    {
+                        CS_SwitchTeam(topKiller, CS_TEAM_CT);
+                        TeleportToCTSpawn(topKiller);
+                        PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} Player {RED}%s{DEFAULT} killed {BLUE}ALL CT{DEFAULT} and moves to {BLUE}Counter-Terrorists{DEFAULT}!", topKillerName);
+                        PrintColorChatAll(" {GREEN}[BRush]{DEFAULT} %s can choose 2 teammates to join CT team!", topKillerName);
+                        CreateTimer(0.5, Timer_ShowTeammateMenu, GetClientUserId(topKiller));
+                    }
                 }
             }
             
@@ -490,7 +494,7 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
         
         if(playersNeeded > 0)
         {
-            for(int i = 0; i < 3; i++) // Выводим сообщение 3 раза для заметности
+            for(int i = 0; i < 3; i++)
             {
                 CreateTimer(float(i) * 1.0, Timer_ShowWaitingMessage, playersNeeded);
             }
@@ -504,6 +508,12 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
     for(int i = 1; i <= MaxClients; i++)
     {
         g_iKillsThisRound[i] = 0;
+        
+        // Возрождаем мертвых игроков в командах
+        if(IsValidClient(i) && !IsPlayerAlive(i) && GetClientTeam(i) > CS_TEAM_SPECTATOR)
+        {
+            CS_RespawnPlayer(i);
+        }
     }
     
     // Замораживаем игроков
@@ -617,8 +627,24 @@ public Action Command_JoinTeam(int client, const char[] command, int args)
 {
     if(!g_bEnabled)
         return Plugin_Continue;
-        
-    return Plugin_Handled;
+    
+    char arg[4];
+    GetCmdArg(1, arg, sizeof(arg));
+    int team = StringToInt(arg);
+    
+    // Блокируем присоединение к командам, если они заполнены
+    if(team == CS_TEAM_T && GetTeamClientCount(CS_TEAM_T) >= MAX_TERRORISTS)
+    {
+        PrintColorChat(client, "%s %sКоманда террористов заполнена!", CHAT_TAG, CHAT_DEFAULT);
+        return Plugin_Handled;
+    }
+    else if(team == CS_TEAM_CT && GetTeamClientCount(CS_TEAM_CT) >= MAX_CTS)
+    {
+        PrintColorChat(client, "%s %sКоманда спецназа заполнена!", CHAT_TAG, CHAT_DEFAULT);
+        return Plugin_Handled;
+    }
+    
+    return Plugin_Handled; // В любом случае блокируем ручную смену команды
 }
 
 public Action Command_StartGame(int targetClient, int args)
@@ -656,88 +682,77 @@ public Action Timer_AutoAssignTeam(Handle timer, any userId)
     if(!IsValidClient(client) || !IsClientConnected(client) || !IsClientInGame(client))
         return Plugin_Stop;
     
-    // Учитываем только живых игроков в командах
     int tCount = GetTeamClientCount(CS_TEAM_T);
     int ctCount = GetTeamClientCount(CS_TEAM_CT);
-    int totalPlayers = tCount + ctCount;
     
-    // Если игра идёт, оставляем в спектаторах
+    // Если игра идёт
     if(g_bGameStarted)
     {
-        CS_SwitchTeam(client, CS_TEAM_SPECTATOR);
-        PrintColorChat(client, "%s %sИгра уже идёт. Вы перемещены в наблюдатели.", CHAT_TAG, CHAT_DEFAULT);
+        // Строгое соблюдение лимитов 5T vs 3CT
+        if(tCount < 5)
+        {
+            CS_SwitchTeam(client, CS_TEAM_T);
+            if(!g_bRoundEnded)
+            {
+                CS_RespawnPlayer(client);
+            }
+            PrintColorChat(client, " %s %sВы определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
+        }
+        else if(ctCount < 3)
+        {
+            CS_SwitchTeam(client, CS_TEAM_CT);
+            if(!g_bRoundEnded)
+            {
+                CS_RespawnPlayer(client);
+            }
+            PrintColorChat(client, " %s %sВы определены за %sСпецназ%s", CHAT_TAG, CHAT_DEFAULT, CHAT_CT, CHAT_DEFAULT);
+        }
+        else
+        {
+            CS_SwitchTeam(client, CS_TEAM_SPECTATOR);
+            PrintColorChat(client, " %s %sКоманды заполнены! (T: %d/5, CT: %d/3)", CHAT_TAG, CHAT_DEFAULT, tCount, ctCount);
+        }
         return Plugin_Stop;
     }
     
-    // Если игра ещё не началась, показываем сообщение об ожидании
-    if(!g_bGameStarted)
-    {
-        int playersNeeded = 8 - totalPlayers;
-        if(playersNeeded > 0)
-        {
-            PrintColorChatAll("%s %sЖдём ещё %d %s для начала игры...", 
-                CHAT_TAG, 
-                CHAT_DEFAULT, 
-                playersNeeded, 
-                playersNeeded == 1 ? "игрока" : "игроков"
-            );
-        }
-    }
-    
-    // Автоматическое распределение по новой схеме
-    if(totalPlayers == 0)
+    // Если игра не начата
+    if(tCount == 0 && ctCount == 0)
     {
         CS_SwitchTeam(client, CS_TEAM_T);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
+        CS_RespawnPlayer(client);
+        PrintColorChat(client, " %s %sВы первый игрок и определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
     }
-    else if(totalPlayers == 1 && tCount == 1)
+    else if(tCount < 5)
+    {
+        CS_SwitchTeam(client, CS_TEAM_T);
+        CS_RespawnPlayer(client);
+        PrintColorChat(client, " %s %sВы определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
+    }
+    else if(ctCount < 3)
     {
         CS_SwitchTeam(client, CS_TEAM_CT);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sСпецназ%s", CHAT_TAG, CHAT_DEFAULT, CHAT_CT, CHAT_DEFAULT);
-    }
-    else if(totalPlayers == 2 && ctCount == 1)
-    {
-        CS_SwitchTeam(client, CS_TEAM_T);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
-    }
-    else if(totalPlayers == 3 && tCount == 2)
-    {
-        CS_SwitchTeam(client, CS_TEAM_CT);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sСпецназ%s", CHAT_TAG, CHAT_DEFAULT, CHAT_CT, CHAT_DEFAULT);
-    }
-    else if(totalPlayers == 4 && ctCount == 2)
-    {
-        CS_SwitchTeam(client, CS_TEAM_T);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
-    }
-    else if(totalPlayers == 5 && tCount == 3)
-    {
-        CS_SwitchTeam(client, CS_TEAM_T);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
-    }
-    else if(totalPlayers == 6 && tCount == 4)
-    {
-        CS_SwitchTeam(client, CS_TEAM_T);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sТеррористов%s", CHAT_TAG, CHAT_DEFAULT, CHAT_T, CHAT_DEFAULT);
-    }
-    else if(totalPlayers == 7 && tCount == 5)
-    {
-        CS_SwitchTeam(client, CS_TEAM_CT);
-        PrintColorChat(client, "%s %sВы автоматически определены за %sСпецназ%s", CHAT_TAG, CHAT_DEFAULT, CHAT_CT, CHAT_DEFAULT);
+        CS_RespawnPlayer(client);
+        PrintColorChat(client, " %s %sВы определены за %sСпецназ%s", CHAT_TAG, CHAT_DEFAULT, CHAT_CT, CHAT_DEFAULT);
     }
     else
     {
         CS_SwitchTeam(client, CS_TEAM_SPECTATOR);
-        PrintColorChat(client, "%s %sКоманды заполнены. Вы остаётесь в наблюдателях.", CHAT_TAG, CHAT_DEFAULT);
+        PrintColorChat(client, " %s %sКоманды заполнены! (T: %d/5, CT: %d/3)", CHAT_TAG, CHAT_DEFAULT, tCount, ctCount);
     }
     
-    // Проверяем, можно ли начать игру
-    if(totalPlayers + 1 >= MIN_PLAYERS_TO_START && !g_bGameStarted)
+    // Проверка достаточного количества игроков для старта
+    int totalPlayers = tCount + ctCount;
+    if(totalPlayers >= MIN_PLAYERS_TO_START && !g_bGameStarted)
     {
         StartGame();
     }
     
     return Plugin_Stop;
+}
+
+public Action Command_BlockTeam(int client, const char[] command, int args)
+{
+    return Plugin_Handled;
 }
 
 // Дополнительно добавим функцию для проверки текущего баланса команд
@@ -1245,4 +1260,14 @@ void ExecuteBRushConfig()
         PrintToServer("[BRush] Warning: Config file not found: %s", CONFIG_PATH);
         CreateDefaultConfig();
     }
+}
+
+bool CanJoinTeam(int team)
+{
+    int currentCount = GetTeamClientCount(team);
+    if(team == CS_TEAM_T)
+        return currentCount < MAX_TERRORISTS;
+    else if(team == CS_TEAM_CT)
+        return currentCount < MAX_CTS;
+    return false;
 }
