@@ -294,6 +294,7 @@ new DefaultStartCash;
 new g_iAccount = -1;
 new bool:lateLoad;
 new bool:NeedsCashReset;
+bool g_bGameStarted = false;
 
 new String:g_sOrgBotQuotaMode[15];
 //new g_iOrgBotQuota;
@@ -668,7 +669,7 @@ public OnClientPostAdminCheck(client) {
 	if (Enabled && IsClientInGame(client) && !IsFakeClient(client))
 	{
 		PrintToConsole(client, "\n\n******************************");
-		PrintToConsole(client, "[CSS BRush] v%s by TnTSCS", PLUGIN_VERSION);
+		PrintToConsole(client, "[CSS BRush] v%s", PLUGIN_VERSION);
 		PrintToConsole(client, "******************************\n");
 	}
 }
@@ -681,28 +682,61 @@ public OnClientPostAdminCheck(client) {
  * @note	Must use IsClientInGame(client) if you want to do client specific things
  */
 public OnClientDisconnect(client) {
-    if (IsClientInGame(client))
-    {
-        ResetClientVariables(client);
+    if (!IsClientInGame(client))
+        return;
         
-        // Добавляем проверку команд после отключения
+    ResetClientVariables(client);
+    
+    // Если игра идёт
+    if (GameIsLive) {
+        new tCount = GetTeamClientCount(CS_TEAM_T);
+        new ctCount = GetTeamClientCount(CS_TEAM_CT);
+        
+        // Проверяем минимальное количество игроков после выхода
+        if (tCount < 3 || ctCount < 2) {
+            BR_PrintToChatAll(" \x04[BRush]\x01 Not enough players to continue! (Min: 3T and 2CT)");
+            BR_PrintToChatAll(" \x04[BRush]\x01 Current teams: \x07FF0000T (%d/5)\x01 vs \x070000FFCT (%d/3)", tCount, ctCount);
+            GameIsLive = false;
+            SetConVarInt(fr_restart, 3, false, false);
+        } else {
+            // Игра продолжается
+            decl String:name[MAX_NAME_LENGTH];
+            GetClientName(client, name, sizeof(name));
+            BR_PrintToChatAll(" \x04[BRush]\x01 Player %s disconnected. Game continues!", name);
+            BR_PrintToChatAll(" \x04[BRush]\x01 Current teams: \x07FF0000T (%d/5)\x01 vs \x070000FFCT (%d/3)", tCount, ctCount);
+        }
+        
+        // Проверяем, есть ли наблюдатели, которые могут заменить ушедшего игрока
         CreateTimer(0.1, Timer_CheckTeamsAfterDisconnect);
     }
 }
 
-public Action Timer_CheckTeamsAfterDisconnect(Handle timer)
-{
+public Action Timer_CheckTeamsAfterDisconnect(Handle timer) {
     int tCount = GetTeamClientCount(CS_TEAM_T);
     int ctCount = GetTeamClientCount(CS_TEAM_CT);
-    
+
     // Если есть наблюдатели и есть свободные слоты
-    if((tCount < MAX_TERRORISTS || ctCount < MAX_CTS) && HasSpectators())
-    {
+    if((tCount < MAX_TERRORISTS || ctCount < MAX_CTS) && HasSpectators()) {
         // Показываем меню всем наблюдателям
         ShowSlotMenuToAllSpectators();
     }
-    
+
     return Plugin_Stop;
+}
+
+public void CheckRemainingPlayers() {
+    int totalPlayers = 0;
+
+    for(int i = 1; i <= MaxClients; i++) {
+        if(IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) != CS_TEAM_SPECTATOR) {
+            totalPlayers++;
+        }
+    }
+
+    // Если количество игроков меньше определенного значения, игра продолжается до смены карты
+    if(totalPlayers < 2) {
+        PrintToChatAll("{green}Not enough players to continue the game. The game will continue until the map changes.");
+    }
 }
 
 bool HasSpectators()
@@ -1307,63 +1341,81 @@ public Event_PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
  * @noreturn
  */
 public Event_RoundFreezeEnd(Handle:event, const String:name[], bool:dontBroadcast) {
-	NeedsCashReset = false;
-	
-	if ((StrEqual(s_bombsite, "A", false) && g_BombsiteA == -1) || (StrEqual(s_bombsite, "B", false) && g_BombsiteB == -1))
-	{ // Why don't we have the bombsite indexes yet?
-		GetBomsitesIndexes();
-	}
-	
-	new tCount = 0, ctCount = 0;
-	Team_GetClientCounts(tCount, ctCount, CLIENTFILTER_NOSPECTATORS);
-	
-	// ===================================================================================================================================
-	// Make sure conditions are appropriate for BRush round - 5 players on Terrorist's team and 3 players on CT's team
-	// ===================================================================================================================================
-	if (tCount == 5 && ctCount == 3)
-	{
-		GameIsLive = true;
-		
-		// Let the players know this round is LIVE
-		Format(BR_msg, sizeof(BR_msg), "%t %t", "Prefix", "LiveRound");
-		BR_PrintToChatAll(BR_msg);
-		
-		PrintCenterTextAll("%t", "LiveRound");
-		
-		ApplyPlayerFreeze();
-	}
-	else
-	{
-		if (GameIsLive && UseConfigs)
-		{
-			ServerCommand("exec brush.notlive.cfg"); // Since the game had been live, but is now not live, execute the notlive config
-		}
-		
-		GameIsLive = false;
-		
-		// Let the players know this round is not live
-		Format(BR_msg, sizeof(BR_msg), "%t %t", "Prefix", "NotLiveRound");
-		BR_PrintToChatAll(BR_msg);
-		
-		// Start a repeating timer (if one isn't already running) to constantly check for BRUSH live round conditions
-		if (LiveTimer == INVALID_HANDLE)
-		{
-			// The 3.0 seconds is for the PrintKeyHintText display time
-			LiveTimer = CreateTimer(3.0, Timer_CheckLive, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
-		}
-	}
-	
-	CTKiller = 0; // Set this holder to zero so we'll know later on if there is a CTKiller	
-	numSwitched = 0; // Set this to 0 so we can accuratly keep track of how many Terrorists are switched	
-	killers = 0; // Set this to 0 so we can accuratly count how many Terrorist kill CTs
-	
-	for (new i = 1; i <= MaxClients; i++)
-	{
-		if (IsClientInGame(i))
-		{
-			ChangeTeamImmune[i] = false;
-		}
-	}
+    NeedsCashReset = false;
+    
+    if ((StrEqual(s_bombsite, "A", false) && g_BombsiteA == -1) || (StrEqual(s_bombsite, "B", false) && g_BombsiteB == -1)) {
+        GetBomsitesIndexes();
+    }
+    
+    new tCount = 0, ctCount = 0;
+    Team_GetClientCounts(tCount, ctCount, CLIENTFILTER_NOSPECTATORS);
+    
+    // ===================================================================================================================================
+    // Make sure conditions are appropriate for BRush round - 5 players on Terrorist's team and 3 players on CT's team
+    // ===================================================================================================================================
+    
+    // Если игроков стало меньше минимума (3T и 2CT), отключаем игру полностью
+    if (tCount < 3 || ctCount < 2) {
+        GameIsLive = false;
+        g_bGameStarted = false;
+        
+        if (UseConfigs) {
+            ServerCommand("exec brush.notlive.cfg");
+        }
+        
+        Format(BR_msg, sizeof(BR_msg), "%t %t", "Prefix", "NotLiveRound");
+        BR_PrintToChatAll(BR_msg);
+        
+        if (LiveTimer == INVALID_HANDLE) {
+            LiveTimer = CreateTimer(3.0, Timer_CheckLive, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+        }
+    }
+    // Если есть полный состав, запускаем игру
+    else if (tCount == 5 && ctCount == 3) {
+        GameIsLive = true;
+        g_bGameStarted = true;
+        
+        Format(BR_msg, sizeof(BR_msg), "%t %t", "Prefix", "LiveRound");
+        BR_PrintToChatAll(BR_msg);
+        PrintCenterTextAll("%t", "LiveRound");
+        
+        ApplyPlayerFreeze();
+    }
+    // Если игра уже была запущена и есть минимальный состав, продолжаем игру
+    else if (g_bGameStarted && tCount >= 3 && ctCount >= 2) {
+        GameIsLive = true;
+        
+        Format(BR_msg, sizeof(BR_msg), "%t %t", "Prefix", "LiveRound");
+        BR_PrintToChatAll(BR_msg);
+        PrintCenterTextAll("%t", "LiveRound");
+        
+        ApplyPlayerFreeze();
+    }
+    // В остальных случаях игра не активна
+    else {
+        if (GameIsLive && UseConfigs) {
+            ServerCommand("exec brush.notlive.cfg");
+        }
+        
+        GameIsLive = false;
+        
+        Format(BR_msg, sizeof(BR_msg), "%t %t", "Prefix", "NotLiveRound");
+        BR_PrintToChatAll(BR_msg);
+        
+        if (LiveTimer == INVALID_HANDLE) {
+            LiveTimer = CreateTimer(3.0, Timer_CheckLive, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+        }
+    }
+    
+    CTKiller = 0;
+    numSwitched = 0;
+    killers = 0;
+    
+    for (new i = 1; i <= MaxClients; i++) {
+        if (IsClientInGame(i)) {
+            ChangeTeamImmune[i] = false;
+        }
+    }
 }
 
 /**
@@ -1598,52 +1650,63 @@ public Event_BombExploded(Handle:event, const String:name[], bool:dontBroadcast)
  * @eventparam	message	String: End round message.
  */
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
-	CreateTimer(0.6, Timer_SetScore); // See function for details
-	
-	g_bRoundEnded = true;
-	
-	if (!GameIsLive)
-	{
-		return;
-	}
-	
-	#if _DEBUG
-	DebugMessage("Event_RoundEnd triggered");
-	#endif
-	
-	// ===================================================================================================================================
-	// Figure out what team won and handle appropriately with announcements and team swapping if needed
-	// ===================================================================================================================================
-	new winner = GetEventInt(event, "winner");
-	
-	numSwitched = 0;
-	
-	if (winner == CS_TEAM_T) // Terrorists won, let's reset some stuff
-	{
-		NeedsCashReset = true;
-		
-		CreateTimer(0.2, Timer_ProcessTeam); // See function for details
-		
-		if (fast_round)
-		{
-			SetConVarInt(fr_restart, fr_time, false, false);
-		}
-	}
-	else // CTs won, let's go to next round.
-	{
-		CTScore++; // Increase the CT's score by 1
-		
-		Format(BR_msg, sizeof(BR_msg), "%t", "CTWon");
-		BR_PrintToChatAll(BR_msg);
-		
-		if (CTScore >= 2)
-		{
-			CreateTimer(0.3, Timer_Announcement); // See function for details
-		}
-	}
-	
-	tawpno = 0;
-	ctawpno = 0;
+    CreateTimer(0.6, Timer_SetScore);
+    
+    g_bRoundEnded = true;
+    
+    // Проверяем только GameIsLive, убираем проверку !g_bGameStarted
+    if (!GameIsLive) {
+        return;
+    }
+    
+    #if _DEBUG
+    DebugMessage("Event_RoundEnd triggered");
+    #endif
+    
+    // Проверяем количество игроков перед началом нового раунда
+    new tCount = GetTeamClientCount(CS_TEAM_T);
+    new ctCount = GetTeamClientCount(CS_TEAM_CT);
+    
+    // Если достаточно игроков для продолжения
+    if (tCount >= 3 && ctCount >= 2) {
+        // ===================================================================================================================================
+        // Figure out what team won and handle appropriately with announcements and team swapping if needed
+        // ===================================================================================================================================
+        new winner = GetEventInt(event, "winner");
+        
+        numSwitched = 0;
+        
+        if (winner == CS_TEAM_T) // Terrorists won, let's reset some stuff
+        {
+            NeedsCashReset = true;
+            
+            CreateTimer(0.2, Timer_ProcessTeam);
+            
+            if (fast_round) {
+                SetConVarInt(fr_restart, fr_time, false, false);
+            }
+        }
+        else // CTs won, let's go to next round.
+        {
+            CTScore++;
+            
+            Format(BR_msg, sizeof(BR_msg), "%t", "CTWon");
+            BR_PrintToChatAll(BR_msg);
+            
+            if (CTScore >= 2) {
+                CreateTimer(0.3, Timer_Announcement);
+            }
+        }
+        
+        tawpno = 0;
+        ctawpno = 0;
+    } else {
+        // Недостаточно игроков, но не останавливаем игру полностью
+        BR_PrintToChatAll(" \x04[BRush]\x01 Waiting for players to join (T: %d/5, CT: %d/3)", tCount, ctCount);
+        BR_PrintToChatAll(" \x04[BRush]\x01 Game will continue when teams have enough players");
+        
+        // Не сбрасываем GameIsLive и g_bGameStarted здесь
+    }
 }
 
 /**
@@ -1703,47 +1766,46 @@ public Action:Timer_Announcement(Handle:timer) {
  * @noreturn
  */
 public Action:Timer_CheckLive(Handle:timer) {
-	// ===================================================================================================================================
-	// Repeating timer to check for team conditions.  Once there are 5 players on Terrorist's team and 3 players on CT's team, the round will go live
-	// ===================================================================================================================================
-	if (GetTeamClientCount(CS_TEAM_T) == 5 && GetTeamClientCount(CS_TEAM_CT) == 3)
-	{
-		LiveTimer = INVALID_HANDLE; // Always need to set back to INVALID_HANDLE when the timer has served its purpose
-		
-		GameIsLive = true; // So Event_RoundFreezeEnd knows it's live
-		
-		if (UseConfigs)
-		{
-			ServerCommand("exec brush.live.cfg"); // Since the game is now live, execute the live config file.
-		}
-		
-		new times = 0;
-		while (times < 3) // Repeat the announcement 3 times
-		{
-			Format(BR_msg, sizeof(BR_msg), "%t", "RoundGoingLive");
-			BR_PrintToChatAll(BR_msg);
-			
-			times++;
-		}
-		
-		SetConVarInt(fr_restart, 5, false, false); // Restart the game since now the conditions meet a live match
-		
-		CTScore = 0; // Reset the score for CTs
-		
-		return Plugin_Stop; // Stop this repeating timer.
-	}
-	
-	// Conditions haven't been met to live the round for BRUSH, let any spectators know they are needed
-	for (new i = 1; i <= MaxClients; i++)
-	{	
-		if (IsClientInGame(i) && !IsFakeClient(i))
-		{
-			Client_PrintKeyHintText(i, "%t\n\n%t", "Prefix2", "SpecAdvert");
-		}
-	}
-	
-	return Plugin_Continue;
+    // Первый запуск игры - требуем полный состав
+    if (!g_bGameStarted && GetTeamClientCount(CS_TEAM_T) == 5 && GetTeamClientCount(CS_TEAM_CT) == 3) {
+        LiveTimer = INVALID_HANDLE;
+        GameIsLive = true;
+        g_bGameStarted = true;
+        
+        if (UseConfigs) {
+            ServerCommand("exec brush.live.cfg");
+        }
+        
+        new times = 0;
+        while (times < 3) {
+            Format(BR_msg, sizeof(BR_msg), "%t", "RoundGoingLive");
+            BR_PrintToChatAll(BR_msg);
+            times++;
+        }
+        
+        SetConVarInt(fr_restart, 5, false, false);
+        CTScore = 0;
+        
+        return Plugin_Stop;
+    }
+    
+    // Если игра уже началась - проверяем минимальные требования
+    if (g_bGameStarted) {
+        new tCount = GetTeamClientCount(CS_TEAM_T);
+        new ctCount = GetTeamClientCount(CS_TEAM_CT);
+        
+        if (tCount >= 3 && ctCount >= 2) {
+            if (!GameIsLive) {
+                GameIsLive = true;
+                BR_PrintToChatAll(" \x04[BRush]\x01 Enough players have joined! Game continues!");
+                SetConVarInt(fr_restart, 3, false, false);
+            }
+        }
+    }
+    
+    return Plugin_Continue;
 }
+
 
 #if 0
 /**
@@ -3172,38 +3234,42 @@ public OnResetTPistolChanged(Handle:cvar, const String:oldVal[], const String:ne
 
 public Action Command_StartGame(int client, int args)
 {
-    if(!Enabled)
+    if (!Enabled)
     {
-        PrintColorChat(client, " %s %sВключите режим brush сначала!", CHAT_TAG, CHAT_DEFAULT);
+        BR_PrintToChat(client, "%s Plugin is currently disabled!", CHAT_TAG);
         return Plugin_Handled;
     }
-    
-    if(GameIsLive)
+
+    if (GameIsLive)
     {
-        PrintColorChat(client, " %s %sИгра уже идёт!", CHAT_TAG, CHAT_DEFAULT);
+        BR_PrintToChat(client, "%s Game is already live!", CHAT_TAG);
         return Plugin_Handled;
     }
-    
+
+    // Принудительно запускаем игру
     GameIsLive = true;
-    PrintColorChatAll(" %s %sИгра принудительно запущена администратором!", CHAT_TAG, CHAT_DEFAULT);
-    
-    // Перезапускаем раунд
-    ServerCommand("mp_restartgame 3");
+    BR_PrintToChatAll("%s Admin %N force started the game!", CHAT_TAG, client);
     
     return Plugin_Handled;
 }
 
 public Action Command_StopGame(int client, int args)
 {
-    if(!GameIsLive)
+    if (!Enabled)
     {
-        PrintColorChat(client, " %s %sИгра не запущена!", CHAT_TAG, CHAT_DEFAULT);
+        BR_PrintToChat(client, "%s Plugin is currently disabled!", CHAT_TAG);
         return Plugin_Handled;
     }
-    
+
+    if (!GameIsLive)
+    {
+        BR_PrintToChat(client, "%s Game is not live!", CHAT_TAG);
+        return Plugin_Handled;
+    }
+
+    // Принудительно останавливаем игру
     GameIsLive = false;
-    PrintColorChatAll(" %s %sИгра остановлена администратором!", CHAT_TAG, CHAT_DEFAULT);
-    ServerCommand("mp_restartgame 1");
+    BR_PrintToChatAll("%s Admin %N force stopped the game!", CHAT_TAG, client);
     
     return Plugin_Handled;
 }
