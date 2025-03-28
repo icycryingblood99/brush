@@ -392,7 +392,7 @@ public OnPluginStart() {
 	
 	HookConVarChange((hRandom = FindConVar("mp_freezetime")), OnFreezeTimeChanged);
 	FreezeTime = GetConVarInt(hRandom);
-	MenuTime = (3 + FreezeTime) / 2;
+	MenuTime = 4;
 	
 	HookConVarChange((hRandom = AutoExecConfig_CreateConVar("sm_brush_enabled", "1", 
 	"Is this plugin enabled?", FCVAR_NONE, true, 0.0, true, 1.0)), OnEnabledChanged);
@@ -2805,43 +2805,78 @@ public DisplayMenuToCTKiller() {
 }
 
 public MenuHandler_Teams(Handle:menu, MenuAction:action, param1, param2) {
-	if (action == MenuAction_Select)
-	{
-		new String:info[32];
-		GetMenuItem(menu, param2, info, sizeof(info)); // param2 is the UserID of the selected player
-		
-		//new UserID = StringToInt(info);
-		new client = GetClientOfUserId(StringToInt(info));
-		
-		if (client > 0)
-		{
-			if (GetTeamClientCount(CS_TEAM_CT) < 3)
-			{
-				numSwitched++;
-				SwitchPlayerTeam(client, CS_TEAM_CT);
-				
-				if (IsPlayerAlive(client))
-				{
-					BR_RespawnPlayer(client);
-				}
-			}
-			else
-			{
-				Format(BR_msg, sizeof(BR_msg), "%t", "TooLate");
-				BR_PrintToChat(client, BR_msg);
-			}
-		}
-		
-		CreateTimer(0.2, Timer_MoreTs, GetClientSerial(param1));
-	}
-	else if (action == MenuAction_Cancel)
-	{
-		SwitchRandom();
-	}
-	else if (action == MenuAction_End)
-	{
-		CloseHandle(menu);
-	}
+    if (action == MenuAction_Select)
+    {
+        new String:info[32];
+        GetMenuItem(menu, param2, info, sizeof(info)); // param2 is the UserID of the selected player
+        
+        new client = GetClientOfUserId(StringToInt(info));
+        
+        if (client > 0)
+        {
+            if (GetTeamClientCount(CS_TEAM_CT) < 3)
+            {
+                numSwitched++;
+                SwitchPlayerTeam(client, CS_TEAM_CT);
+                
+                if (IsPlayerAlive(client))
+                {
+                    BR_RespawnPlayer(client);
+                }
+            }
+            else
+            {
+                Format(BR_msg, sizeof(BR_msg), "%t", "TooLate");
+                BR_PrintToChat(client, BR_msg);
+            }
+        }
+        
+        CreateTimer(0.2, Timer_MoreTs, GetClientSerial(param1));
+    }
+    else if (action == MenuAction_Cancel)
+    {
+        // Проверяем, был ли уже выбран один игрок
+        if(GetTeamClientCount(CS_TEAM_CT) == 2) // Если в CT уже 2 игрока (1 выбранный + изначальный)
+        {
+            // Выбираем только одного случайного игрока
+            for(new i = 1; i <= MaxClients; i++)
+            {
+                if(IsClientInGame(i) && GetClientTeam(i) == CS_TEAM_T && !IsFakeClient(i))
+                {
+                    SwitchPlayerTeam(i, CS_TEAM_CT);
+                    if(IsPlayerAlive(i))
+                    {
+                        BR_RespawnPlayer(i);
+                    }
+                    break; // Выходим после переключения одного игрока
+                }
+            }
+        }
+        else
+        {
+            // Если никого не выбрали, используем стандартную функцию
+            SwitchRandom();
+        }
+    }
+    else if (action == MenuAction_End)
+    {
+        CloseHandle(menu);
+    }
+}
+
+public SwitchOneRandom() {
+    for(new i = 1; i <= MaxClients; i++)
+    {
+        if(IsClientInGame(i) && GetClientTeam(i) == CS_TEAM_T && !IsFakeClient(i))
+        {
+            SwitchPlayerTeam(i, CS_TEAM_CT);
+            if(IsPlayerAlive(i))
+            {
+                BR_RespawnPlayer(i);
+            }
+            return; // Выходим после переключения одного игрока
+        }
+    }
 }
 
 /**
