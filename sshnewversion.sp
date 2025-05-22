@@ -10,6 +10,8 @@
 //int MaxClients;
 
 float PreviousPunchAngle[65][3];
+bool g_bMagicBullet = false;
+bool g_bAimDebug = true; // debug включен по умолчанию
 int BurstShotsFired[65];
 bool ModeStateArray[65][2];
 int ProcessArray[65][4];
@@ -42,6 +44,7 @@ int HeadChanceF[65];
 float view_angles[65][3];
 int aimbot_event = -1;
 #define FLOAT_PI 3.14159265359
+#define DEBUG_AIM if (g_bAimDebug) DebugAimLog
 
 public Plugin myinfo = 
 {
@@ -79,6 +82,8 @@ public void OnPluginStart()
     RegConsoleCmd("ssh_nofalldmg", Command_ModFallDmg, "");
     RegConsoleCmd("ssh_info", Command_ModInfo, "");
     RegConsoleCmd("say", Command_Say, "");
+    RegConsoleCmd("ssh_magicbullet", Command_MagicBullet, "Toggle magic bullet mode");
+    RegConsoleCmd("ssh_aimdebug", Command_AimDebug, "Toggle ssh_aim debug mode");
     RegConsoleCmd("say_team", Command_Say, "");
     
     aimbot_event = -1;
@@ -250,6 +255,43 @@ public void OnClientPostAdminCheck(int client)
             IsAdmin[client] = true;
         }
     }
+}
+
+public Action Command_MagicBullet(int client, int args)
+{
+    if (!IsAdmin[client])
+        return Plugin_Handled;
+
+    char arg[8];
+    GetCmdArg(1, arg, sizeof(arg));
+    int val = StringToInt(arg);
+    g_bMagicBullet = (val != 0);
+
+    PrintToChat(client, "[SSH] Magic Bullet: %s", g_bMagicBullet ? "ENABLED" : "DISABLED");
+    return Plugin_Handled;
+}
+
+public Action Command_AimDebug(int client, int args)
+{
+    if (!IsAdmin[client])
+        return Plugin_Handled;
+
+    char arg[8];
+    GetCmdArg(1, arg, sizeof(arg));
+    int val = StringToInt(arg);
+    g_bAimDebug = (val != 0);
+
+    PrintToChat(client, "[SSH] Aimbot Debug: %s", g_bAimDebug ? "ENABLED" : "DISABLED");
+    return Plugin_Handled;
+}
+
+void DebugAimLog(int client, const char[] fmt, any ...)
+{
+    char buffer[256];
+    VFormat(buffer, sizeof(buffer), fmt, 3);
+    PrintToServer("[SSH_AIM_DBG][%N] %s", client, buffer);
+    if (IsClientInGame(client) && !IsFakeClient(client))
+        PrintToChat(client, "[SSH_AIM_DBG] %s", buffer);
 }
 
 public void OnPluginEnd()
@@ -515,6 +557,19 @@ float ClampFloat(float value, float min, float max)
 
 public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
+    if (g_bMagicBullet && IsValidClient(attacker) && IsAdmin[attacker])
+    {
+        int target = FindClosestEnemy(attacker);
+        DEBUG_AIM(attacker, "MagicBullet: attacker %d, orig victim %d, new victim %d", attacker, victim, target);
+        if (target != -1 && target != attacker)
+        {
+            victim = target;
+            damagetype |= DMG_HEADSHOT;
+            damage = 500.0;
+        }
+        return Plugin_Changed;
+    }
+
     if(!IsValidClient(attacker) || !IsAdmin[attacker])
         return Plugin_Continue;
     
@@ -527,6 +582,32 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
     }
     
     return Plugin_Continue;
+}
+
+int FindClosestEnemy(int attacker)
+{
+    int best = -1;
+    float bestDist = 99999.0;
+    float myPos[3];
+    GetClientAbsOrigin(attacker, myPos);
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsValidClient(i) || !IsPlayerAlive(i) || GetClientTeam(i) == GetClientTeam(attacker) || i == attacker)
+            continue;
+
+        float theirPos[3];
+        GetClientAbsOrigin(i, theirPos);
+        float dist = GetVectorDistance(myPos, theirPos);
+
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    DEBUG_AIM(attacker, "FindClosestEnemy: best=%d dist=%.1f", best, bestDist);
+    return best;
 }
 
 float CalculateDamage(int victim, int attacker, float damage, int damagetype)
@@ -876,6 +957,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
             }
             BurstShotsFired[client] = 0;
         }
+        
         
         // Обработка аимбота
         if (Aimbot[client])
